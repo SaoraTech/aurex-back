@@ -115,4 +115,4 @@ export const notificationPreference = pgTable('notification_preference', {
   id: text('id').primaryKey(), userId: text('user_id').notNull().unique().references(() => user.id, { onDelete: 'cascade' }),
   emailEnabled: boolean('email_enabled').notNull().default(true), productEnabled: boolean('product_enabled').notNull().default(true),
   createdAt: timestamp('created_at').notNull().defaultNow(), updatedAt: timestamp('updated_at').notNull().defaultNow(),
-}));
+});

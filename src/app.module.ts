@@ -18,14 +18,31 @@ import { LibraryModule } from './library/library.module';
 import { PrivacyModule } from './privacy/privacy.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { AuditModule } from './audit/audit.module';
+import { AudioModule } from './audio/audio.module';
+import { StorageModule } from './storage/storage.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, load: [envFactory] }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 90 }]),
-    DbModule, AuthModule, HealthModule, SecurityModule, AiModule, MathModule,
-    ConversationsModule, ChatModule, PlansModule, BillingModule, MemoryModule,
-    ArtifactsModule, LibraryModule, PrivacyModule, NotificationsModule, AuditModule,
+    DbModule,
+    AuthModule,
+    HealthModule,
+    SecurityModule,
+    AiModule,
+    MathModule,
+    ConversationsModule,
+    ChatModule,
+    PlansModule,
+    BillingModule,
+    MemoryModule,
+    ArtifactsModule,
+    LibraryModule,
+    PrivacyModule,
+    NotificationsModule,
+    AuditModule,
+    AudioModule,
+    StorageModule,
   ],
 })
 export class AppModule {}

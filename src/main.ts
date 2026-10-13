@@ -17,26 +17,44 @@ async function bootstrap() {
   const auth = app.get(AUTH);
 
   app.setGlobalPrefix('api/v1', { exclude: ['api/auth/(.*)'] });
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true, transformOptions: { enableImplicitConversion: true } }));
-  app.use(helmet({
-    contentSecurityPolicy: false,
-    crossOriginEmbedderPolicy: false,
-  }));
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+      transformOptions: { enableImplicitConversion: true },
+    }),
+  );
+
+  app.use(
+    helmet({
+      contentSecurityPolicy: false,
+      crossOriginEmbedderPolicy: false,
+    }),
+  );
+
   const origins = (config.get<string>('CORS_ORIGIN') ?? '')
-    .split(',').map(v => v.trim()).filter(Boolean);
-  app.enableCors({ origin: origins.length ? origins : false, credentials: true, methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'] });
+    .split(',')
+    .map(v => v.trim())
+    .filter(Boolean);
+  app.enableCors({
+    origin: origins.length ? origins : false,
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  });
 
   // Better Auth must receive the raw request before the general JSON parser.
   app.use('/api/auth', toNodeHandler(auth));
-  app.use(express.json({ limit: '2mb' }));
-  app.use(express.urlencoded({ extended: true, limit: '2mb' }));
+  app.use(express.json({ limit: '10mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
   const swagger = new DocumentBuilder()
     .setTitle('Aurex API')
-    .setDescription('API commune aux clients Web, Android, iOS et Desktop.')
-    .setVersion('1.0.0')
+    .setDescription('API centrale pour Aurex Web, Android/Kotlin, iOS/Swift, Desktop et SDKs.')
+    .setVersion('1.1.0')
     .addBearerAuth()
     .build();
+
   SwaggerModule.setup('docs', app, SwaggerModule.createDocument(app, swagger));
 
   app.enableShutdownHooks();
