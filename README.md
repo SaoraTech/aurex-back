@@ -10,13 +10,13 @@ API centrale NestJS + TypeScript pour Aurex Web, Android/Kotlin, iOS/Swift, Reac
 - Conversations et messages ; routage IA en fonction du plan, contrôlé côté serveur.
 - Free : Kimi, Qwen, DeepSeek et Grok (identifiants de modèles configurables).
 - Plus/Pro : Gemini et Groq pour la génération de réponses.
-- Adaptateur Groq pour transcription et synthèse vocale, ainsi que pour la génération de réponses textuelles ; vérifier les modèles/quotas et l'accès réel au compte avant activation. Les opérations audio ne sont pas encore exposées par des endpoints HTTP publics dans cette base.
+- Voix : ElevenLabs (TTS/STT) exposé via `/audio/*`, repli Groq contrôlé ; stockage privé Cloudflare R2 via `/library/*` ; recherche web/approfondie Tavily via `/research/*` et `webSearch` du chat ; sécurité applicative Arcjet ; identité d'Aurex centralisée. Détails : `docs/INTEGRATIONS.md`. Rapport d'audit : `docs/AUDIT.md`.
 - Wolfram|Alpha pour les calculs ; abonnements/quota configurables ; abstraction paiement désactivée tant que le fournisseur n'est pas validé.
 - Mémoire persistante, artefacts versionnés, métadonnées de bibliothèque, demandes de confidentialité, audit et adaptateur Novu facultatif.
 
 ## Démarrage local
 
-1. Installer Node.js 20.11+.
+1. Installer Node.js **22.21+** (requis par le SDK Arcjet).
 2. Créer un projet/base PostgreSQL dans Neon et copier la chaîne de connexion **pooled** depuis le tableau de bord Neon. Garder `sslmode=require` et ne jamais committer de vraies clés.
 3. `cp .env.example .env`, puis renseigner `DATABASE_URL`, un `BETTER_AUTH_SECRET` aléatoire d'au moins 32 caractères, et les clés des fournisseurs voulus.
 4. `npm install`
@@ -41,9 +41,9 @@ Ce dépôt est une base d'implémentation, pas une certification de production. 
 
 - Les tarifs/quotas de `.env.example` sont provisoires et configurables.
 - Les paiements restent désactivés par défaut. Aucun prestataire ne doit être activé avant validation de l'éligibilité, signatures webhook, idempotence, remboursements et rapprochement.
-- R2, Novu et Resend sont facultatifs ; le stockage privé des fichiers, l'analyse des uploads et les URLs signées doivent être implémentés/testés avant d'accepter des documents utilisateurs.
+- R2, ElevenLabs, Tavily et Arcjet sont implémentés mais **non testés contre les services réels** ; Novu, Resend et les paiements ne sont pas implémentés. Aucune analyse antivirus des fichiers n'existe.
 - L'export JSON et la demande de suppression ne remplacent pas une procédure complète de conformité et d'effacement vérifiable.
-- Les limites de requêtes en mémoire ne suffisent pas à un déploiement multi-instance ; prévoir un stockage partagé/edge.
+- Le limiteur local (secours/dev) est par instance : en production multi-instance, Arcjet est le contrôle effectif ; le dépôt n'a pas été compilé ni testé avec les vraies dépendances (voir `docs/AUDIT.md` §6).
 - La connexion Neon doit être testée depuis l'environnement de déploiement ; ne pas désactiver la validation TLS de manière générale.
 
 ## Principes de sécurité

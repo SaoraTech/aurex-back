@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { DRIZZLE } from '../db/db.constants';
 import { artifact, artifactVersion, conversation, libraryDocument, memoryItem, message, privacyRequest, subscription } from '../db/schema';
 import { newId } from '../common/ids';
@@ -10,8 +10,7 @@ export class PrivacyService {
   async exportUserData(userId:string) {
     const conversations = await this.db.select().from(conversation).where(eq(conversation.userId,userId));
     const conversationIds = conversations.map((c:any)=>c.id);
-    let messages:any[] = [];
-    for (const id of conversationIds) messages = messages.concat(await this.db.select().from(message).where(eq(message.conversationId,id)));
+    const messages:any[] = conversationIds.length ? await this.db.select().from(message).where(inArray(message.conversationId,conversationIds)) : [];
     const memories = await this.db.select().from(memoryItem).where(eq(memoryItem.userId,userId));
     const artifacts = await this.db.select().from(artifact).where(eq(artifact.userId,userId));
     const docs = await this.db.select({id:libraryDocument.id,filename:libraryDocument.filename,mimeType:libraryDocument.mimeType,sizeBytes:libraryDocument.sizeBytes,status:libraryDocument.status,createdAt:libraryDocument.createdAt}).from(libraryDocument).where(eq(libraryDocument.userId,userId));

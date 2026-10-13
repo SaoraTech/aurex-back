@@ -2,6 +2,7 @@ import {
   pgTable, text, timestamp, boolean, integer, varchar, index, pgEnum,
   jsonb, uniqueIndex, bigint,
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 
 export const planEnum = pgEnum('plan', ['free','plus','pro']);
 export const messageRole = pgEnum('message_role', ['user','assistant','system','tool']);
@@ -50,8 +51,16 @@ export const message = pgTable('message', {
   role: messageRole('role').notNull(), content: text('content').notNull(), mathInput: text('math_input'),
   mathResult: text('math_result'), computation: text('computation'), provider: text('provider'),
   requestId: text('request_id'), tokenCount: integer('token_count'),
+  model: text('model'), latencyMs: integer('latency_ms'),
+  /** Web sources used for this answer (url/title/snippet metadata only), when a real web search was performed. */
+  sources: jsonb('sources'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
-}, t => ({ conversationIdx: index('message_conversation_idx').on(t.conversationId), requestIdx: index('message_request_idx').on(t.requestId) }));
+}, t => ({
+  conversationIdx: index('message_conversation_idx').on(t.conversationId),
+  requestIdx: index('message_request_idx').on(t.requestId),
+  // Idempotency: at most one message per (conversation, client request id, role).
+  idempotencyIdx: uniqueIndex('message_idempotency_uq').on(t.conversationId, t.requestId, t.role).where(sql`request_id is not null`),
+}));
 
 export const subscription = pgTable('subscription', {
   id: text('id').primaryKey(), userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
@@ -96,8 +105,9 @@ export const libraryDocument = pgTable('library_document', {
   id: text('id').primaryKey(), userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
   filename: varchar('filename', { length: 255 }).notNull(), mimeType: varchar('mime_type', { length: 120 }).notNull(),
   sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull(), objectKey: text('object_key').notNull(),
-  status: text('status').notNull().default('pending'), createdAt: timestamp('created_at').notNull().defaultNow(),
-}, t => ({ userIdx: index('library_user_idx').on(t.userId) }));
+  sha256: varchar('sha256', { length: 64 }),
+  status: text('status').notNull().default('stored'), createdAt: timestamp('created_at').notNull().defaultNow(),
+}, t => ({ userIdx: index('library_user_idx').on(t.userId), objectKeyIdx: uniqueIndex('library_object_key_uq').on(t.objectKey) }));
 
 export const privacyRequest = pgTable('privacy_request', {
   id: text('id').primaryKey(), userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
@@ -116,3 +126,16 @@ export const notificationPreference = pgTable('notification_preference', {
   emailEnabled: boolean('email_enabled').notNull().default(true), productEnabled: boolean('product_enabled').notNull().default(true),
   createdAt: timestamp('created_at').notNull().defaultNow(), updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
+
+/** Billable / quota-relevant provider calls (tts chars, stt calls, web searches, deep research, ...). */
+export const providerUsage = pgTable('provider_usage', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').references(() => user.id, { onDelete: 'set null' }),
+  kind: varchar('kind', { length: 40 }).notNull(),
+  provider: varchar('provider', { length: 40 }).notNull(),
+  units: integer('units').notNull().default(1),
+  latencyMs: integer('latency_ms'),
+  outcome: varchar('outcome', { length: 30 }).notNull(),
+  requestId: text('request_id'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+}, t => ({ userKindIdx: index('provider_usage_user_kind_idx').on(t.userId, t.kind, t.createdAt) }));

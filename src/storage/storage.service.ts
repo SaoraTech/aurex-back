@@ -1,250 +1,118 @@
-import {
-  BadRequestException,
-  ForbiddenException,
-  Injectable,
-  Logger,
-  NotFoundException,
-  ServiceUnavailableException,
-} from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import {
-  DeleteObjectCommand,
-  GetObjectCommand,
-  HeadObjectCommand,
-  PutObjectCommand,
-  S3Client,
-} from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client, DeleteObjectsCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { newId } from '../common/ids';
+import { AppException } from '../common/errors';
+import { MetricsService } from '../observability/metrics.service';
 
-export interface PresignedUploadResult {
-  uploadUrl: string;
-  key: string;
-  expiresInSeconds: number;
-  bucket: string;
-}
+const status = (e: unknown): number | undefined => (e as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode;
+const name = (e: unknown): string | undefined => (e as { name?: string })?.name;
+const isMissing = (e: unknown) => status(e) === 404 || name(e) === 'NotFound' || name(e) === 'NoSuchKey';
 
-export interface PresignedDownloadResult {
-  downloadUrl: string;
-  key: string;
-  expiresInSeconds: number;
-}
-
+/**
+ * Low-level private object storage on Cloudflare R2 (S3-compatible). The bucket is never public; there is no
+ * public base URL. Keys are generated server-side from verified identifiers; access = ownership checks done by
+ * LibraryService against the database + presigned, short-lived GET URLs.
+ */
 @Injectable()
 export class StorageService {
   private readonly logger = new Logger(StorageService.name);
-  private s3Client: S3Client | null = null;
-  private bucket: string | null = null;
+  private client?: S3Client;
+  private readonly bucket?: string;
+  private readonly enabled: boolean;
 
-  constructor(private readonly config: ConfigService) {
-    this.initClient();
-  }
-
-  private initClient() {
-    const accountId = this.config.get<string>('r2.accountId');
-    const accessKeyId = this.config.get<string>('r2.accessKeyId');
-    const secretAccessKey = this.config.get<string>('r2.secretAccessKey');
-    const endpoint = this.config.get<string>('r2.endpoint') ?? (accountId ? `https://${accountId}.r2.cloudflarestorage.com` : undefined);
-    const bucket = this.config.get<string>('r2.bucket');
-
-    if (accessKeyId && secretAccessKey && endpoint && bucket) {
-      this.bucket = bucket;
-      this.s3Client = new S3Client({
-        region: 'auto',
-        endpoint,
-        credentials: {
-          accessKeyId,
-          secretAccessKey,
-        },
-      });
-      this.logger.log(`Client Cloudflare R2 initialisé sur le bucket '${bucket}'`);
-    } else {
-      this.logger.warn('Cloudflare R2 n’est pas configuré. Le stockage d’objets privé est inactif.');
+  constructor(private readonly config: ConfigService, private readonly metrics: MetricsService) {
+    this.enabled = this.config.get<boolean>('r2Enabled') === true;
+    this.bucket = this.config.get<string>('r2Bucket');
+    if (this.enabled) {
+      const accountId = this.config.get<string>('r2AccountId');
+      const accessKeyId = this.config.get<string>('r2AccessKeyId');
+      const secretAccessKey = this.config.get<string>('r2SecretAccessKey');
+      if (!accountId || !this.bucket || !accessKeyId || !secretAccessKey) throw new Error('R2_ENABLED=true requires account ID, bucket, access key ID and secret access key');
+      this.client = this.createClient(accountId, accessKeyId, secretAccessKey);
     }
   }
 
-  isConfigured(): boolean {
-    return this.s3Client !== null && this.bucket !== null;
+  protected createClient(accountId: string, accessKeyId: string, secretAccessKey: string): S3Client {
+    return new S3Client({
+      region: 'auto',
+      endpoint: this.config.get<string>('r2Endpoint') || `https://${accountId}.r2.cloudflarestorage.com`,
+      credentials: { accessKeyId, secretAccessKey },
+      // AWS SDK >= 3.729 adds CRC32 checksums by default, which R2 rejects on some operations.
+      requestChecksumCalculation: 'WHEN_REQUIRED',
+      responseChecksumValidation: 'WHEN_REQUIRED',
+    });
   }
 
-  /**
-   * Vérifie strictement que la clé appartient à l'utilisateur courant (protection anti-IDOR/BOLA)
-   * et ne contient aucune tentative de traversée de chemin ('..').
-   */
-  assertOwnership(userId: string, key: string): void {
-    if (!key || typeof key !== 'string') {
-      throw new BadRequestException('Clé d’objet invalide.');
-    }
+  isEnabled(): boolean { return this.enabled; }
+  private get timeoutMs() { return this.config.get<number>('r2TimeoutMs') ?? 30000; }
 
-    if (key.includes('..') || key.includes('\\') || key.startsWith('/')) {
-      throw new ForbiddenException('Clé d’objet malformée ou tentative de traversée de chemin.');
-    }
-
-    const expectedPrefix = `${userId}/`;
-    if (!key.startsWith(expectedPrefix)) {
-      throw new ForbiddenException('Accès refusé : cet objet n’appartient pas à votre compte utilisateur.');
-    }
+  private assertEnabled(): S3Client {
+    if (!this.enabled || !this.client || !this.bucket) throw new AppException(503, 'STORAGE_DISABLED', "Le stockage de fichiers n'est pas activé sur ce serveur.");
+    return this.client;
   }
 
-  /**
-   * Génère une URL présignée de téléversement (PUT) à durée limitée (par défaut 15 minutes).
-   * La clé est obligatoirement préfixée par l'identifiant de l'utilisateur.
-   */
-  async getPresignedUploadUrl(
-    userId: string,
-    input: { filename: string; contentType: string; expiresInSeconds?: number },
-  ): Promise<PresignedUploadResult> {
-    if (!this.s3Client || !this.bucket) {
-      throw new ServiceUnavailableException('Le stockage Cloudflare R2 n’est pas configuré sur ce serveur.');
-    }
+  private async send<T>(op: string, fn: (c: S3Client, signal: AbortSignal) => Promise<T>): Promise<T> {
+    const client = this.assertEnabled();
+    return this.metrics.track('r2', op, () => fn(client, AbortSignal.timeout(this.timeoutMs)));
+  }
 
-    if (!input.filename || !input.contentType) {
-      throw new BadRequestException('Le nom de fichier et le type MIME sont obligatoires.');
-    }
+  /** Server-generated key. `ownerId` and `objectId` come from the verified session / database, never the client. */
+  buildKey(ownerId: string, objectId: string): string {
+    if (!ownerId || ownerId.length > 128 || !/^[0-9a-f-]{36}$/i.test(objectId)) throw new AppException(400, 'INVALID_OBJECT_ID', "Identifiant d'objet invalide.");
+    return `users/${encodeURIComponent(ownerId)}/${objectId}`;
+  }
 
-    // Nettoyage du nom de fichier pour éviter les caractères dangereux
-    const sanitizedFilename = input.filename.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const objectId = newId();
-    const key = `${userId}/${objectId}-${sanitizedFilename}`;
-    const expiresIn = input.expiresInSeconds ?? 900; // 15 min
+  async put(key: string, body: Buffer, contentType: string, ownerId: string): Promise<void> {
+    await this.send('put', (c, signal) => c.send(new PutObjectCommand({
+      Bucket: this.bucket, Key: key, Body: body, ContentLength: body.length, ContentType: contentType, Metadata: { ownerid: ownerId },
+    }), { abortSignal: signal })).catch(e => { throw this.map(e); });
+  }
 
+  async exists(key: string): Promise<boolean> {
     try {
-      const command = new PutObjectCommand({
-        Bucket: this.bucket,
-        Key: key,
-        ContentType: input.contentType,
-        Metadata: {
-          'uploaded-by': userId,
-          'original-filename': encodeURIComponent(input.filename),
-        },
-      });
-
-      const uploadUrl = await getSignedUrl(this.s3Client, command, { expiresIn });
-
-      return {
-        uploadUrl,
-        key,
-        expiresInSeconds: expiresIn,
-        bucket: this.bucket,
-      };
-    } catch (err) {
-      this.logger.error('Erreur lors de la génération de l’URL présignée d’upload R2', (err as Error).stack);
-      throw new ServiceUnavailableException('Impossible de générer le lien de téléversement sécurisé.');
-    }
+      await this.send('head', (c, signal) => c.send(new HeadObjectCommand({ Bucket: this.bucket, Key: key }), { abortSignal: signal }));
+      return true;
+    } catch (e) { if (isMissing(e)) return false; throw this.map(e); }
   }
 
-  /**
-   * Génère une URL présignée de téléchargement (GET) à durée limitée (par défaut 1 heure).
-   */
-  async getPresignedDownloadUrl(
-    userId: string,
-    key: string,
-    expiresInSeconds = 3600,
-  ): Promise<PresignedDownloadResult> {
-    if (!this.s3Client || !this.bucket) {
-      throw new ServiceUnavailableException('Le stockage Cloudflare R2 n’est pas configuré sur ce serveur.');
-    }
+  async delete(key: string): Promise<void> {
+    await this.send('delete', (c, signal) => c.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }), { abortSignal: signal })).catch(e => { throw this.map(e); });
+  }
 
-    this.assertOwnership(userId, key);
-
-    try {
-      // Vérification préalable de l'existence de l'objet
-      await this.s3Client.send(
-        new HeadObjectCommand({
-          Bucket: this.bucket,
-          Key: key,
-        }),
-      );
-    } catch (err: any) {
-      if (err.name === 'NotFound' || err.$metadata?.httpStatusCode === 404) {
-        throw new NotFoundException('L’objet demandé est introuvable.');
+  /** Deletes every object under a user's prefix (account deletion). Returns the number of objects removed. */
+  async deleteUserPrefix(ownerId: string): Promise<number> {
+    const prefix = `users/${encodeURIComponent(ownerId)}/`;
+    let removed = 0; let token: string | undefined;
+    do {
+      const page = await this.send('list', (c, signal) => c.send(new ListObjectsV2Command({ Bucket: this.bucket, Prefix: prefix, ContinuationToken: token }), { abortSignal: signal })).catch(e => { throw this.map(e); });
+      const keys = (page.Contents ?? []).map(o => ({ Key: o.Key! }));
+      if (keys.length) {
+        await this.send('delete_many', (c, signal) => c.send(new DeleteObjectsCommand({ Bucket: this.bucket, Delete: { Objects: keys, Quiet: true } }), { abortSignal: signal })).catch(e => { throw this.map(e); });
+        removed += keys.length;
       }
-      this.logger.warn(`Vérification R2 HeadObject échouée: ${err.message}`);
-    }
-
-    try {
-      const command = new GetObjectCommand({
-        Bucket: this.bucket,
-        Key: key,
-      });
-
-      const downloadUrl = await getSignedUrl(this.s3Client, command, {
-        expiresIn: expiresInSeconds,
-      });
-
-      return {
-        downloadUrl,
-        key,
-        expiresInSeconds,
-      };
-    } catch (err) {
-      this.logger.error('Erreur génération lien téléchargement R2', (err as Error).stack);
-      throw new ServiceUnavailableException('Impossible de générer le lien de téléchargement sécurisé.');
-    }
+      token = page.IsTruncated ? page.NextContinuationToken : undefined;
+    } while (token);
+    return removed;
   }
 
-  /**
-   * Supprime un objet appartenant à l'utilisateur.
-   */
-  async deleteObject(userId: string, key: string): Promise<{ success: boolean; key: string }> {
-    if (!this.s3Client || !this.bucket) {
-      throw new ServiceUnavailableException('Le stockage Cloudflare R2 n’est pas configuré sur ce serveur.');
-    }
-
-    this.assertOwnership(userId, key);
-
-    try {
-      await this.s3Client.send(
-        new DeleteObjectCommand({
-          Bucket: this.bucket,
-          Key: key,
-        }),
-      );
-
-      return { success: true, key };
-    } catch (err) {
-      this.logger.error(`Erreur suppression objet R2 '${key}'`, (err as Error).stack);
-      throw new ServiceUnavailableException('Échec de la suppression de l’objet.');
-    }
+  /** Short-lived presigned GET URL. Forces download (attachment) so uploaded content is never rendered inline. */
+  async presignDownload(key: string, filename: string, contentType: string): Promise<{ url: string; expiresIn: number }> {
+    const client = this.assertEnabled();
+    const expiresIn = Math.min(Math.max(this.config.get<number>('r2PresignedUrlTtlSeconds') ?? 300, 30), 3600);
+    const safe = filename.replace(/[^\x20-\x7E]/g, '_').replace(/["\\]/g, '_');
+    const url = await getSignedUrl(client, new GetObjectCommand({
+      Bucket: this.bucket, Key: key, ResponseContentType: contentType,
+      ResponseContentDisposition: `attachment; filename="${safe}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+    }), { expiresIn });
+    return { url, expiresIn };
   }
 
-  /**
-   * Récupère les métadonnées d'un objet appartenant à l'utilisateur.
-   */
-  async getObjectMetadata(userId: string, key: string) {
-    if (!this.s3Client || !this.bucket) {
-      throw new ServiceUnavailableException('Le stockage Cloudflare R2 n’est pas configuré sur ce serveur.');
-    }
-
-    this.assertOwnership(userId, key);
-
-    try {
-      const res = await this.s3Client.send(
-        new HeadObjectCommand({
-          Bucket: this.bucket,
-          Key: key,
-        }),
-      );
-
-      return {
-        key,
-        contentType: res.ContentType,
-        contentLength: res.ContentLength,
-        lastModified: res.LastModified,
-        metadata: res.Metadata,
-      };
-    } catch (err: any) {
-      if (err.name === 'NotFound' || err.$metadata?.httpStatusCode === 404) {
-        throw new NotFoundException('Objet introuvable.');
-      }
-      throw new ServiceUnavailableException('Erreur lors de la lecture des métadonnées de l’objet.');
-    }
-  }
-
-  getStatus() {
-    return {
-      configured: this.isConfigured(),
-      bucket: this.bucket,
-    };
+  private map(error: unknown): AppException {
+    if (error instanceof AppException) return error;
+    this.logger.error({ msg: 'r2_error', status: status(error), name: name(error) });
+    if (status(error) === 403) return new AppException(503, 'STORAGE_MISCONFIGURED', 'Le stockage est mal configuré.');
+    if (name(error) === 'TimeoutError' || name(error) === 'AbortError') return new AppException(504, 'STORAGE_TIMEOUT', 'Le stockage ne répond pas à temps.');
+    return new AppException(503, 'STORAGE_UNAVAILABLE', 'Le stockage est momentanément indisponible.');
   }
 }

@@ -1,43 +1,41 @@
-# Aurex API V1 & V1.1 (Routes et Contrats d'Interface)
+# Aurex API V1
 
-Base path : `/api/v1`. Authentication routes : `/api/auth/*` (Better Auth).
+Base path: `/api/v1`. Authentication routes: `/api/auth/*` (Better Auth).
 
-| Méthode | Chemin | Description / Rôle | Auth Requise |
+| Method | Path | Purpose | Auth |
 |---|---|---|---|
-| GET | `/health` | Liveness check du backend | Non |
-| GET | `/health/ready` | PostgreSQL readiness (Neon) | Non |
-| GET | `/plans` | Liste des plans configurés (Free, Plus, Pro) | Non |
-| GET/POST | `/conversations` | Lister / Créer des conversations | Oui |
-| GET | `/conversations/:id/messages` | Messages d'une conversation appartenant à l'utilisateur | Oui |
-| DELETE | `/conversations/:id` | Supprimer une conversation possédée | Oui |
-| POST | `/chat/messages` | Envoi d'un message avec identité officielle Aurex et routage IA | Oui |
-| GET | `/ai/models` | Modèles autorisés selon l'abonnement actif | Oui |
-| POST | `/math/compute` | Calcul symbolique et résolution (Wolfram\|Alpha) | Oui |
-| GET | `/audio/status` | Statut des fournisseurs audio (ElevenLabs, Groq) | Oui |
-| POST | `/audio/speech` | Synthèse vocale TTS (ElevenLabs officiel + repli Groq) | Oui |
-| POST | `/audio/transcriptions` | Transcription vocale STT (Whisper multipart upload) | Oui |
-| GET | `/storage/status` | Statut de la configuration Cloudflare R2 | Oui |
-| POST | `/storage/presigned-upload` | Générer une URL présignée de téléversement privé R2 (anti-IDOR) | Oui |
-| POST | `/storage/presigned-download` | Générer une URL présignée de téléchargement privé R2 (durée limitée) | Oui |
-| DELETE | `/storage/objects` | Supprimer un objet R2 appartenant à l'utilisateur | Oui |
-| GET | `/storage/objects/metadata` | Métadonnées de l'objet (taille, MIME, date) | Oui |
-| GET | `/memory` | Lister les préférences et contexte de mémoire persistante | Oui |
-| POST | `/memory` | Créer une entrée de mémoire persistante | Oui |
-| PATCH/DELETE | `/memory/:id` | Mettre à jour / supprimer une entrée de mémoire | Oui |
-| GET/POST | `/artifacts` | Lister / créer des artefacts de code et documents versionnés | Oui |
-| GET/POST | `/artifacts/:id/versions` | Lister / ajouter des versions à un artefact | Oui |
-| GET | `/library/documents` | Consulter les métadonnées de la bibliothèque | Oui |
-| GET | `/billing/history` | Historique des paiements et souscriptions | Oui |
-| POST | `/billing/checkout` | Initialisation de paiement (désactivé jusqu'à validation adaptateur) | Oui |
-| GET | `/privacy/export` | Export complet des données utilisateur JSON (RGPD) | Oui |
-| POST | `/privacy/delete-account` | Enregistrement de la demande de suppression définitive | Oui |
+| GET | `/health` | Liveness | No |
+| GET | `/health/ready` | PostgreSQL readiness | No |
+| GET | `/plans` | Configured plan display | No |
+| GET/POST | `/conversations` | List/create conversations | Yes |
+| GET | `/conversations/:id/messages` | Messages owned by user | Yes |
+| DELETE | `/conversations/:id` | Delete owned conversation | Yes |
+| POST | `/math/compute` | Wolfram calculation | Yes |
+| GET | `/memory` | List memory | Yes |
+| POST | `/memory` | Create memory | Yes |
+| PATCH/DELETE | `/memory/:id` | Update/delete memory | Yes |
+| GET/POST | `/artifacts` | List/create versioned artifacts | Yes |
+| GET/POST | `/artifacts/:id/versions` | List/append versions | Yes |
+| GET | `/identity` | Official identity, honest capability/provider states | No |
+| POST | `/chat/messages` | Body adds `webSearch: off\|on\|auto`; response adds `webSearch`, `fallbackFrom`, `model` | Yes |
+| POST | `/audio/speech` | Text → `audio/mpeg` (voice/model server-side) | Yes |
+| POST | `/audio/transcriptions?languageCode=` | Raw audio bytes → `{ text, languageCode, provider, fallback }` | Yes |
+| POST | `/research/search` | Web search (Tavily), no LLM | Yes |
+| POST | `/research/deep` | Bounded deep research with citations | Yes |
+| POST | `/library/documents` | Raw bytes + `X-File-Content-Type`, `X-File-Name` | Yes |
+| GET | `/library/documents` · `/library/documents/:id` | List / metadata | Yes |
+| GET | `/library/documents/:id/download-url` | Short-lived presigned link | Yes |
+| DELETE | `/library/documents/:id` | Delete object + record | Yes |
+| GET | `/metrics` | Prometheus text (404 unless `METRICS_TOKEN`) | Bearer token |
+| GET | `/billing/history` | Payment history | Yes |
+| POST | `/billing/checkout` | Checkout (disabled until adapter approved) | Yes |
+| GET | `/privacy/export` | Export user data JSON | Yes |
+| POST | `/privacy/delete-account` | Register deletion request | Yes |
 
-### Sécurité du stockage privé (Cloudflare R2)
-- Toutes les clés créées côté serveur suivent strictement le format : `{userId}/{objectId}-{sanitizedFilename}`.
-- Tout appel de téléchargement ou suppression vérifie l'appartenance du préfixe `userId/` pour neutraliser les failles IDOR/BOLA.
-- Les URLs d'upload expirent en 15 minutes, celles de téléchargement en 60 minutes.
+Send `Idempotency-Key` on checkout requests. Current payment route deliberately refuses checkout until a validated provider adapter exists.
 
-### Synthèse & Transcription vocale (Audio)
-- La synthèse utilise ElevenLabs (`eleven_multilingual_v2`) comme fournisseur officiel prioritaire.
-- En cas de panne temporaire ou d'absence de clé, le backend bascule automatiquement sur Groq TTS (`playai-tts`).
-- La transcription utilise Whisper Large V3 via Groq pour une latence minimale et une grande précision sur le français et les accents d'Afrique de l'Ouest.
+For native clients, test Better Auth's Bearer plugin with actual Android and iOS networking code and store tokens in Android Keystore / iOS Keychain. Do not store long-lived tokens in plain preferences or local storage.
+
+## Error contract (changed)
+All errors: `{ statusCode, error, code, message, details?, requestId }` (`statusCode`/`message` stay Nest-compatible; `code` is stable and machine-readable, e.g. `RATE_LIMITED`, `DAILY_MESSAGE_LIMIT`, `PROVIDER_TIMEOUT`, `WEB_SEARCH_UNAVAILABLE`, `UNSUPPORTED_AUDIO_TYPE`). 429/503 may carry `Retry-After`. **Clients that parse the old Nest default body must be updated.**
+Idempotency: send `requestId` on `/chat/messages`; replaying it returns the stored answer without a new provider call or quota use.

@@ -1,3 +1,4 @@
+import { Protect } from '../security/protect.decorator';
 import { Body, Controller, Get, Headers, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { IsIn, IsString, MaxLength } from 'class-validator';
@@ -11,6 +12,7 @@ class CheckoutDto {
 @ApiTags('billing')
 @ApiBearerAuth()
 @UseGuards(RequireUserGuard)
+@Protect('read')
 @Controller('billing')
 export class BillingController {
   constructor(private readonly billing: BillingService) {}

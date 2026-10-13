@@ -1,3 +1,4 @@
+import { Protect } from '../security/protect.decorator';
 import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { IsIn, IsObject, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
@@ -16,6 +17,7 @@ class NewVersionDto {
   @IsOptional() @IsString() @MaxLength(1000) note?: string;
 }
 @ApiTags('artifacts') @ApiBearerAuth() @UseGuards(RequireUserGuard)
+@Protect('read')
 @Controller('artifacts')
 export class ArtifactsController {
   constructor(private readonly service: ArtifactsService) {}

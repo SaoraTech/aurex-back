@@ -1,184 +1,103 @@
-import {
-  BadRequestException,
-  Injectable,
-  Logger,
-  ServiceUnavailableException,
-} from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { AppException, badRequest, payloadTooLarge, tooManyRequests, unsupportedMedia } from '../common/errors';
+import { ProviderError, isFallbackEligible, providerErrorToHttp } from '../common/provider-error';
 import { GroqSpeechService } from '../ai/groq-speech.service';
+import { UsageService, startOfUtcDay } from '../observability/usage.service';
+import { PlansService } from '../plans/plans.service';
+import { sniffAudio } from '../storage/file-signature';
+import { ElevenLabsService } from './elevenlabs.service';
+import { normalizeForSpeech } from './speech-text';
 
-export interface TtsOptions {
-  voice?: string;
-  model?: string;
-  provider?: 'elevenlabs' | 'groq';
-}
-
-export interface TtsResult {
-  audio: Buffer;
-  contentType: string;
-  provider: 'elevenlabs' | 'groq';
-}
-
-export interface SttResult {
-  text: string;
-  provider: 'groq' | 'elevenlabs';
-}
+export interface SynthesisResult { audio: Buffer; contentType: string; provider: 'elevenlabs' | 'groq'; fallback: boolean }
+export interface TranscriptionResult { text: string; languageCode?: string; provider: 'elevenlabs' | 'groq'; fallback: boolean }
 
 @Injectable()
 export class AudioService {
   private readonly logger = new Logger(AudioService.name);
-
   constructor(
     private readonly config: ConfigService,
-    private readonly groqSpeech: GroqSpeechService,
+    private readonly eleven: ElevenLabsService,
+    private readonly groq: GroqSpeechService,
+    private readonly plans: PlansService,
+    private readonly usage: UsageService,
   ) {}
 
-  /**
-   * Synthèse vocale (TTS) avec ElevenLabs comme fournisseur officiel prioritaire
-   * et repli transparent vers Groq Speech en cas d'indisponibilité ou d'absence de clé.
-   */
-  async synthesize(text: string, options: TtsOptions = {}): Promise<TtsResult> {
-    const trimmed = text?.trim();
-    if (!trimmed) {
-      throw new BadRequestException('Le texte à synthétiser ne peut pas être vide.');
-    }
+  private get defaultLanguage() { return this.config.get<string>('audioDefaultLanguage') ?? 'fr'; }
 
-    const maxChars = this.config.get<number>('audio.maxTtsChars', 4000);
-    if (trimmed.length > maxChars) {
-      throw new BadRequestException(
-        `Le texte dépasse la limite maximale autorisée de ${maxChars} caractères.`,
-      );
-    }
+  async synthesize(userId: string, text: string, languageCode?: string, requestId?: string): Promise<SynthesisResult> {
+    const maxChars = this.config.get<number>('elevenLabsMaxTextChars') ?? 5000;
+    const language = languageCode ?? this.defaultLanguage;
+    const spoken = normalizeForSpeech(text, language);
+    if (!spoken) throw badRequest('EMPTY_TEXT', 'Aucun texte à vocaliser.');
+    if (spoken.length > maxChars) throw payloadTooLarge('TEXT_TOO_LONG', `Le texte dépasse ${maxChars} caractères.`);
 
-    const elevenKey = this.config.get<string>('elevenLabs.apiKey');
-    const requestedProvider = options.provider;
+    const useGroqFallback = this.config.get('audioTtsFallbackProvider') === 'groq' && this.groq.isEnabled();
+    if (!this.eleven.isEnabled() && !useGroqFallback) throw new AppException(503, 'TTS_UNAVAILABLE', "La synthèse vocale n'est pas configurée sur ce serveur.");
 
-    // Tentative ElevenLabs si spécifié ou si la clé est présente et qu'aucun autre fournisseur n'est forcé
-    if (requestedProvider === 'elevenlabs' || (!requestedProvider && elevenKey)) {
-      if (!elevenKey) {
-        if (requestedProvider === 'elevenlabs') {
-          throw new ServiceUnavailableException('ElevenLabs n’est pas configuré (clé API manquante).');
-        }
-      } else {
-        try {
-          const voiceId = options.voice ?? this.config.get<string>('elevenLabs.voiceId', '21m00Tcm4TlvDq8ikWAM');
-          const modelId = options.model ?? this.config.get<string>('elevenLabs.modelId', 'eleven_multilingual_v2');
-          const baseUrl = this.config.get<string>('elevenLabs.baseUrl', 'https://api.elevenlabs.io/v1').replace(/\/$/, '');
+    const plan = await this.plans.getEffectivePlan(userId);
+    const used = await this.usage.sumSince(userId, 'tts_chars', startOfUtcDay());
+    const limit = this.plans.getLimits()[plan].dailySpeechChars;
+    if (used + spoken.length > limit) throw tooManyRequests('SPEECH_QUOTA_EXCEEDED', 'Quota quotidien de synthèse vocale atteint.');
 
-          const res = await fetch(`${baseUrl}/text-to-speech/${voiceId}`, {
-            method: 'POST',
-            headers: {
-              'xi-api-key': elevenKey,
-              'Content-Type': 'application/json',
-              Accept: 'audio/mpeg',
-            },
-            body: JSON.stringify({
-              text: trimmed,
-              model_id: modelId,
-              voice_settings: {
-                stability: 0.5,
-                similarity_boost: 0.75,
-              },
-            }),
-            signal: AbortSignal.timeout(30_000),
-          });
-
-          if (!res.ok) {
-            const errText = await res.text().catch(() => '');
-            this.logger.warn(`Échec TTS ElevenLabs (${res.status}): ${errText}`);
-            throw new Error(`ElevenLabs error: ${res.status}`);
-          }
-
-          const arrayBuffer = await res.arrayBuffer();
-          return {
-            audio: Buffer.from(arrayBuffer),
-            contentType: res.headers.get('content-type') ?? 'audio/mpeg',
-            provider: 'elevenlabs',
-          };
-        } catch (err) {
-          if (requestedProvider === 'elevenlabs') {
-            throw new ServiceUnavailableException('Le service ElevenLabs est temporairement indisponible.');
-          }
-          this.logger.warn(`Repli automatique vers Groq TTS suite à l'erreur ElevenLabs: ${(err as Error).message}`);
-        }
+    const started = Date.now();
+    if (this.eleven.isEnabled()) {
+      try {
+        const r = await this.eleven.synthesize(spoken, languageCode);
+        await this.usage.record({ userId, kind: 'tts_chars', provider: 'elevenlabs', units: spoken.length, latencyMs: Date.now() - started, outcome: 'ok', requestId });
+        return { ...r, provider: 'elevenlabs', fallback: false };
+      } catch (error) {
+        const err = error instanceof ProviderError ? error : new ProviderError('elevenlabs', 'unavailable', 'unexpected');
+        await this.usage.record({ userId, kind: 'tts_chars', provider: 'elevenlabs', units: 0, latencyMs: Date.now() - started, outcome: err.kind, requestId });
+        if (!(useGroqFallback && isFallbackEligible(err.kind))) throw providerErrorToHttp(err, 'Le service vocal');
+        this.logger.warn({ msg: 'tts_fallback_to_groq', kind: err.kind });
       }
     }
-
-    // Fournisseur secondaire ou repli : Groq Speech
     try {
-      const groqResult = await this.groqSpeech.synthesize(trimmed, options.voice ?? 'Fritz-PlayAI');
-      return {
-        audio: Buffer.from(groqResult.audio),
-        contentType: groqResult.contentType,
-        provider: 'groq',
-      };
-    } catch (groqErr) {
-      this.logger.error('Échec de la synthèse vocale sur tous les fournisseurs disponibles', (groqErr as Error).stack);
-      throw new ServiceUnavailableException('Aucun service de synthèse vocale n’est actuellement disponible.');
+      const r = await this.groq.synthesize(spoken);
+      await this.usage.record({ userId, kind: 'tts_chars', provider: 'groq', units: spoken.length, latencyMs: Date.now() - started, outcome: 'ok', requestId });
+      return { ...r, provider: 'groq', fallback: this.eleven.isEnabled() };
+    } catch (error) {
+      throw providerErrorToHttp(error instanceof ProviderError ? error : new ProviderError('groq', 'unavailable', 'unexpected'), 'Le service vocal');
     }
   }
 
-  /**
-   * Transcription vocale (STT) avec validation stricte du format et de la taille.
-   */
-  async transcribe(
-    file: { buffer: Buffer; mimetype: string; originalname: string },
-    options: { provider?: 'groq' | 'elevenlabs' } = {},
-  ): Promise<SttResult> {
-    if (!file || !file.buffer || file.buffer.length === 0) {
-      throw new BadRequestException('Aucun fichier audio valide n’a été transmis.');
+  async transcribe(userId: string, body: Buffer | undefined, languageCode?: string, requestId?: string): Promise<TranscriptionResult> {
+    if (!Buffer.isBuffer(body) || body.length === 0) throw badRequest('AUDIO_REQUIRED', "Envoyez l'audio dans le corps de la requête.");
+    const max = this.config.get<number>('audioMaxUploadBytes') ?? 20971520;
+    if (body.length > max) throw payloadTooLarge('AUDIO_TOO_LARGE', `Audio trop volumineux (max ${max} octets).`);
+    // Trust the bytes, not the client-declared Content-Type.
+    const kind = sniffAudio(body);
+    if (!kind) throw unsupportedMedia('UNSUPPORTED_AUDIO_TYPE', 'Format audio non pris en charge.');
+
+    const primary = this.config.get<'elevenlabs' | 'groq'>('audioSttProvider') ?? 'elevenlabs';
+    const fallbackName = this.config.get<'none' | 'groq'>('audioSttFallbackProvider') ?? 'groq';
+    const order: Array<'elevenlabs' | 'groq'> = [primary];
+    if (fallbackName === 'groq' && primary !== 'groq') order.push('groq');
+    const available = order.filter(p => (p === 'elevenlabs' ? this.eleven.isEnabled() : this.groq.isEnabled()));
+    if (!available.length) throw new AppException(503, 'STT_UNAVAILABLE', "La transcription n'est pas configurée sur ce serveur.");
+
+    const plan = await this.plans.getEffectivePlan(userId);
+    const used = await this.usage.sumSince(userId, 'stt_call', startOfUtcDay());
+    if (used >= this.plans.getLimits()[plan].dailyTranscriptions) throw tooManyRequests('TRANSCRIPTION_QUOTA_EXCEEDED', 'Quota quotidien de transcription atteint.');
+
+    const language = languageCode ?? this.defaultLanguage;
+    let lastError: ProviderError | undefined;
+    for (const [i, provider] of available.entries()) {
+      const started = Date.now();
+      try {
+        const file = `audio.${kind.ext}`;
+        const r = provider === 'elevenlabs' ? await this.eleven.transcribe(body, kind.mime, file, language) : await this.groq.transcribe(body, kind.mime, file, language);
+        await this.usage.record({ userId, kind: 'stt_call', provider, units: 1, latencyMs: Date.now() - started, outcome: 'ok', requestId });
+        return { ...r, provider, fallback: i > 0 };
+      } catch (error) {
+        const err = error instanceof ProviderError ? error : new ProviderError(provider, 'unavailable', 'unexpected');
+        await this.usage.record({ userId, kind: 'stt_call', provider, units: 1, latencyMs: Date.now() - started, outcome: err.kind, requestId });
+        lastError = err;
+        if (!isFallbackEligible(err.kind)) break; // invalid audio must not trigger another billed call
+        this.logger.warn({ msg: 'stt_provider_failed', provider, kind: err.kind, willFallback: i < available.length - 1 });
+      }
     }
-
-    const maxBytes = this.config.get<number>('audio.maxFileBytes', 25_000_000);
-    if (file.buffer.length > maxBytes) {
-      throw new BadRequestException(`Fichier trop volumineux. Taille maximale : ${maxBytes / 1_000_000} Mo.`);
-    }
-
-    const allowedMime = [
-      'audio/webm',
-      'audio/wav',
-      'audio/wave',
-      'audio/x-wav',
-      'audio/mpeg',
-      'audio/mp3',
-      'audio/m4a',
-      'audio/x-m4a',
-      'audio/ogg',
-      'audio/flac',
-      'audio/mp4',
-    ];
-
-    if (!allowedMime.includes(file.mimetype.toLowerCase())) {
-      throw new BadRequestException(
-        `Type MIME '${file.mimetype}' non supporté. Formats acceptés : WebM, WAV, MP3, M4A, OGG, FLAC.`,
-      );
-    }
-
-    // Utilisation de Groq Whisper (hautement performant et économique pour la transcription)
-    try {
-      const blob = new Blob([new Uint8Array(file.buffer)], { type: file.mimetype });
-      const res = await this.groqSpeech.transcribe(blob, file.originalname || 'speech.webm');
-      return {
-        text: res.text,
-        provider: 'groq',
-      };
-    } catch (err) {
-      this.logger.error('Échec de la transcription audio:', (err as Error).stack);
-      throw new ServiceUnavailableException('Le service de transcription vocale est temporairement indisponible.');
-    }
-  }
-
-  /**
-   * Retourne l'état des configurations des fournisseurs audio.
-   */
-  getStatus() {
-    const hasElevenLabs = !!this.config.get<string>('elevenLabs.apiKey');
-    const hasGroq = !!this.config.get<string>('groqApiKey');
-    return {
-      elevenLabsConfigured: hasElevenLabs,
-      groqConfigured: hasGroq,
-      defaultTtsProvider: hasElevenLabs ? 'elevenlabs' : hasGroq ? 'groq' : 'none',
-      defaultSttProvider: hasGroq ? 'groq' : 'none',
-    };
+    throw providerErrorToHttp(lastError!, 'Le service de transcription');
   }
 }

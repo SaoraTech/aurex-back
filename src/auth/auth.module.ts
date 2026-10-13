@@ -5,10 +5,11 @@ import { drizzleAdapter } from '@better-auth/drizzle-adapter';
 import { bearer } from 'better-auth/plugins';
 import { DRIZZLE } from '../db/db.constants';
 import { AUTH } from './auth.constants';
+import { RequireUserGuard } from './require-user.guard';
 
 @Global()
 @Module({
-  providers: [{
+  providers: [RequireUserGuard, {
     provide: AUTH,
     inject: [DRIZZLE, ConfigService],
     useFactory: (db: any, config: ConfigService) => betterAuth({
@@ -21,6 +22,6 @@ import { AUTH } from './auth.constants';
       plugins: [bearer()],
     }),
   }],
-  exports: [AUTH],
+  exports: [AUTH, RequireUserGuard],
 })
 export class AuthModule {}

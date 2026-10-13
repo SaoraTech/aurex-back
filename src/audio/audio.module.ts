@@ -1,13 +1,8 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { AiModule } from '../ai/ai.module';
+import { PlansModule } from '../plans/plans.module';
 import { AudioController } from './audio.controller';
 import { AudioService } from './audio.service';
-import { GroqSpeechService } from '../ai/groq-speech.service';
-
-@Module({
-  imports: [ConfigModule],
-  controllers: [AudioController],
-  providers: [AudioService, GroqSpeechService],
-  exports: [AudioService],
-})
+import { ElevenLabsService } from './elevenlabs.service';
+@Module({ imports: [AiModule, PlansModule], controllers: [AudioController], providers: [AudioService, ElevenLabsService] })
 export class AudioModule {}

@@ -1,109 +1,80 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { ConfigService } from '@nestjs/config';
-import { BadRequestException, ServiceUnavailableException } from '@nestjs/common';
+import { ProviderError } from '../common/provider-error';
 import { AudioService } from './audio.service';
-import { GroqSpeechService } from '../ai/groq-speech.service';
 
-describe('AudioService', () => {
-  let service: AudioService;
-  let configService: jest.Mocked<ConfigService>;
-  let groqSpeech: jest.Mocked<GroqSpeechService>;
+const WEBM = Buffer.concat([Buffer.from([0x1a, 0x45, 0xdf, 0xa3]), Buffer.alloc(64)]);
+function build(o: { eleven?: Partial<any>; groq?: Partial<any>; cfg?: Record<string, unknown>; used?: number } = {}) {
+  const eleven: any = { isEnabled: () => true, synthesize: jest.fn().mockResolvedValue({ audio: Buffer.from('mp3'), contentType: 'audio/mpeg' }), transcribe: jest.fn().mockResolvedValue({ text: 'bonjour' }), ...o.eleven };
+  const groq: any = { isEnabled: () => true, synthesize: jest.fn().mockResolvedValue({ audio: Buffer.from('wav'), contentType: 'audio/wav' }), transcribe: jest.fn().mockResolvedValue({ text: 'salut' }), ...o.groq };
+  const config: any = { get: (k: string) => ({ elevenLabsMaxTextChars: 100, audioMaxUploadBytes: 1000, audioDefaultLanguage: 'fr', audioSttProvider: 'elevenlabs', audioSttFallbackProvider: 'groq', audioTtsFallbackProvider: 'none', ...o.cfg } as any)[k] };
+  const plans: any = { getEffectivePlan: async () => 'free', getLimits: () => ({ free: { dailySpeechChars: 500, dailyTranscriptions: 2 } }) };
+  const usage: any = { sumSince: jest.fn().mockResolvedValue(o.used ?? 0), record: jest.fn().mockResolvedValue(undefined) };
+  return { svc: new AudioService(config, eleven, groq, plans, usage), eleven, groq, usage };
+}
 
-  beforeEach(async () => {
-    configService = {
-      get: jest.fn((key: string, defaultValue?: any) => {
-        if (key === 'elevenLabs.apiKey') return 'test-eleven-key';
-        if (key === 'elevenLabs.voiceId') return 'test-voice';
-        if (key === 'elevenLabs.modelId') return 'eleven_multilingual_v2';
-        if (key === 'elevenLabs.baseUrl') return 'https://api.elevenlabs.io/v1';
-        if (key === 'audio.maxTtsChars') return 4000;
-        if (key === 'audio.maxFileBytes') return 25_000_000;
-        if (key === 'groqApiKey') return 'test-groq-key';
-        return defaultValue;
-      }),
-    } as any;
-
-    groqSpeech = {
-      synthesize: jest.fn().mockResolvedValue({
-        audio: new Uint8Array([1, 2, 3]),
-        contentType: 'audio/wav',
-      }),
-      transcribe: jest.fn().mockResolvedValue({
-        text: 'Transcription réussie de la formule mathématique',
-      }),
-    } as any;
-
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        AudioService,
-        { provide: ConfigService, useValue: configService },
-        { provide: GroqSpeechService, useValue: groqSpeech },
-      ],
-    }).compile();
-
-    service = module.get<AudioService>(AudioService);
+describe('AudioService TTS', () => {
+  it('uses ElevenLabs and records usage', async () => {
+    const { svc, usage } = build();
+    const r = await svc.synthesize('u1', 'Bonjour', undefined, 'rid');
+    expect(r).toMatchObject({ provider: 'elevenlabs', contentType: 'audio/mpeg', fallback: false });
+    expect(usage.record).toHaveBeenCalledTimes(1);
   });
-
-  afterEach(() => {
-    jest.restoreAllMocks();
+  it('rejects too long text without calling a provider', async () => {
+    const { svc, eleven } = build();
+    await expect(svc.synthesize('u1', 'a'.repeat(101))).rejects.toMatchObject({ status: 413 });
+    expect(eleven.synthesize).not.toHaveBeenCalled();
   });
-
-  it('rejects empty text for synthesis', async () => {
-    await expect(service.synthesize('')).rejects.toThrow(BadRequestException);
+  it('enforces the daily plan quota', async () => {
+    const { svc, eleven } = build({ used: 499 });
+    await expect(svc.synthesize('u1', 'Bonjour tout le monde')).rejects.toMatchObject({ status: 429 });
+    expect(eleven.synthesize).not.toHaveBeenCalled();
   });
-
-  it('rejects text exceeding character limit', async () => {
-    const longText = 'a'.repeat(4001);
-    await expect(service.synthesize(longText)).rejects.toThrow(BadRequestException);
+  it('reports 503 when no TTS provider is configured', async () => {
+    const { svc } = build({ eleven: { isEnabled: () => false } });
+    await expect(svc.synthesize('u1', 'Bonjour')).rejects.toMatchObject({ status: 503 });
   });
-
-  it('synthesizes text using ElevenLabs when API key is configured', async () => {
-    const mockAudioBytes = new Uint8Array([10, 20, 30]);
-    global.fetch = jest.fn().mockResolvedValueOnce({
-      ok: true,
-      headers: {
-        get: (h: string) => (h.toLowerCase() === 'content-type' ? 'audio/mpeg' : null),
-      },
-      arrayBuffer: async () => mockAudioBytes.buffer,
-    } as any);
-
-    const result = await service.synthesize('Bonjour Aurex');
-    expect(result.provider).toBe('elevenlabs');
-    expect(result.contentType).toBe('audio/mpeg');
-    expect(result.audio).toBeInstanceOf(Buffer);
+  it('does not fall back to Groq unless explicitly enabled', async () => {
+    const { svc, groq } = build({ eleven: { synthesize: jest.fn().mockRejectedValue(new ProviderError('elevenlabs', 'unavailable', 'x')) } });
+    await expect(svc.synthesize('u1', 'Bonjour')).rejects.toMatchObject({ status: 502 });
+    expect(groq.synthesize).not.toHaveBeenCalled();
   });
-
-  it('falls back to Groq TTS when ElevenLabs fails with a transient error', async () => {
-    global.fetch = jest.fn().mockResolvedValueOnce({
-      ok: false,
-      status: 503,
-      text: async () => 'Service Unavailable',
-    } as any);
-
-    const result = await service.synthesize('Calcul d’intégrale');
-    expect(result.provider).toBe('groq');
-    expect(groqSpeech.synthesize).toHaveBeenCalledWith('Calcul d’intégrale', 'Fritz-PlayAI');
+  it('falls back to Groq on provider outage when enabled', async () => {
+    const { svc, groq } = build({ cfg: { audioTtsFallbackProvider: 'groq' }, eleven: { synthesize: jest.fn().mockRejectedValue(new ProviderError('elevenlabs', 'timeout', 'x')) } });
+    expect(await svc.synthesize('u1', 'Bonjour')).toMatchObject({ provider: 'groq', fallback: true });
+    expect(groq.synthesize).toHaveBeenCalledTimes(1);
   });
-
-  it('transcribes valid audio with Groq Whisper', async () => {
-    const fakeFile = {
-      buffer: Buffer.from([1, 2, 3, 4]),
-      mimetype: 'audio/webm',
-      originalname: 'test.webm',
-    };
-
-    const res = await service.transcribe(fakeFile);
-    expect(res.text).toContain('Transcription réussie');
-    expect(res.provider).toBe('groq');
+  it('never falls back on an invalid request (no second billed call)', async () => {
+    const { svc, groq } = build({ cfg: { audioTtsFallbackProvider: 'groq' }, eleven: { synthesize: jest.fn().mockRejectedValue(new ProviderError('elevenlabs', 'invalid_request', 'x', 422)) } });
+    await expect(svc.synthesize('u1', 'Bonjour')).rejects.toMatchObject({ status: 400 });
+    expect(groq.synthesize).not.toHaveBeenCalled();
   });
+});
 
-  it('rejects unsupported MIME types for transcription', async () => {
-    const fakeFile = {
-      buffer: Buffer.from([1, 2, 3]),
-      mimetype: 'application/pdf',
-      originalname: 'doc.pdf',
-    };
-
-    await expect(service.transcribe(fakeFile)).rejects.toThrow(BadRequestException);
+describe('AudioService STT', () => {
+  it('rejects non-audio bytes regardless of declared type', async () => {
+    const { svc, eleven } = build();
+    await expect(svc.transcribe('u1', Buffer.from('<html>not audio</html>'))).rejects.toMatchObject({ status: 415 });
+    expect(eleven.transcribe).not.toHaveBeenCalled();
+  });
+  it('rejects oversized audio', async () => {
+    const { svc } = build();
+    await expect(svc.transcribe('u1', Buffer.concat([WEBM, Buffer.alloc(2000)]))).rejects.toMatchObject({ status: 413 });
+  });
+  it('transcribes with ElevenLabs', async () => {
+    const { svc } = build();
+    expect(await svc.transcribe('u1', WEBM)).toMatchObject({ text: 'bonjour', provider: 'elevenlabs', fallback: false });
+  });
+  it('falls back to Groq Whisper on provider failure', async () => {
+    const { svc, groq } = build({ eleven: { transcribe: jest.fn().mockRejectedValue(new ProviderError('elevenlabs', 'rate_limited', 'x', 429)) } });
+    expect(await svc.transcribe('u1', WEBM)).toMatchObject({ text: 'salut', provider: 'groq', fallback: true });
+    expect(groq.transcribe).toHaveBeenCalledTimes(1);
+  });
+  it('does not fall back for an invalid audio request', async () => {
+    const { svc, groq } = build({ eleven: { transcribe: jest.fn().mockRejectedValue(new ProviderError('elevenlabs', 'invalid_request', 'x', 422)) } });
+    await expect(svc.transcribe('u1', WEBM)).rejects.toMatchObject({ status: 400 });
+    expect(groq.transcribe).not.toHaveBeenCalled();
+  });
+  it('enforces the daily transcription quota', async () => {
+    const { svc } = build({ used: 2 });
+    await expect(svc.transcribe('u1', WEBM)).rejects.toMatchObject({ status: 429 });
   });
 });

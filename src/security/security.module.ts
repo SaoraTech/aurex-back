@@ -1,8 +1,10 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
-import { ThrottlerGuard } from '@nestjs/throttler';
+import { ArcjetService } from './arcjet.service';
+import { ProtectGuard } from './protect.guard';
 
 @Module({
-  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
+  providers: [ArcjetService, { provide: APP_GUARD, useClass: ProtectGuard }],
+  exports: [ArcjetService],
 })
 export class SecurityModule {}

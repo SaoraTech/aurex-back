@@ -1,9 +1,11 @@
+import { Protect } from '../security/protect.decorator';
 import { Controller, Get, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { RequireUserGuard } from '../auth/require-user.guard';
 import { CurrentUserId } from '../common/user.decorator';
 import { PrivacyService } from './privacy.service';
 @ApiTags('privacy') @ApiBearerAuth() @UseGuards(RequireUserGuard)
+@Protect('files')
 @Controller('privacy')
 export class PrivacyController {
   constructor(private readonly service:PrivacyService) {}

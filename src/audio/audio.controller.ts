@@ -1,85 +1,35 @@
-import {
-  Body,
-  Controller,
-  Get,
-  HttpCode,
-  HttpStatus,
-  Post,
-  Res,
-  UploadedFile,
-  UseGuards,
-  UseInterceptors,
-} from '@nestjs/common';
-import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { FileInterceptor } from '@nestjs/platform-express';
-import { Response } from 'express';
-import { IsIn, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
+import { Body, Controller, Header, HttpCode, Post, Query, Req, Res, StreamableFile, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
+import type { Request, Response } from 'express';
 import { RequireUserGuard } from '../auth/require-user.guard';
+import { CurrentUserId, RequestId } from '../common/user.decorator';
+import { Protect } from '../security/protect.decorator';
 import { AudioService } from './audio.service';
 
-export class SynthesizeDto {
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(4000)
-  text!: string;
-
-  @IsString()
-  @IsOptional()
-  voice?: string;
-
-  @IsString()
-  @IsOptional()
-  model?: string;
-
-  @IsString()
-  @IsOptional()
-  @IsIn(['elevenlabs', 'groq'])
-  provider?: 'elevenlabs' | 'groq';
+/** Voice and model are server-side configuration; unknown properties are rejected by the global ValidationPipe. */
+class SpeechDto {
+  @IsString() @MinLength(1) @MaxLength(20000) text!: string;
+  @IsOptional() @Matches(/^[a-z]{2,3}$/) languageCode?: string;
 }
+class TranscriptionQuery { @IsOptional() @Matches(/^[a-z]{2,3}$/) languageCode?: string }
 
-@ApiTags('audio')
-@ApiBearerAuth()
-@UseGuards(RequireUserGuard)
+@ApiTags('audio') @ApiBearerAuth() @UseGuards(RequireUserGuard)
 @Controller('audio')
 export class AudioController {
-  constructor(private readonly audioService: AudioService) {}
+  constructor(private readonly audio: AudioService) {}
 
-  @Get('status')
-  @ApiOperation({ summary: 'État des fournisseurs de synthèse et transcription vocale' })
-  getStatus() {
-    return this.audioService.getStatus();
+  @Post('speech') @Protect('tts') @HttpCode(200) @Header('Cache-Control', 'no-store')
+  async speech(@CurrentUserId() uid: string, @RequestId() rid: string, @Body() dto: SpeechDto, @Res({ passthrough: true }) res: Response) {
+    const r = await this.audio.synthesize(uid, dto.text, dto.languageCode, rid);
+    res.setHeader('X-Aurex-Audio-Provider', r.provider);
+    res.setHeader('X-Aurex-Audio-Fallback', String(r.fallback));
+    return new StreamableFile(r.audio, { type: r.contentType, length: r.audio.length });
   }
 
-  @Post('speech')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Synthèse vocale (TTS) via ElevenLabs avec repli automatique sur Groq' })
-  async synthesize(@Body() body: SynthesizeDto, @Res() res: Response) {
-    const result = await this.audioService.synthesize(body.text, {
-      voice: body.voice,
-      model: body.model,
-      provider: body.provider,
-    });
-
-    res.setHeader('Content-Type', result.contentType);
-    res.setHeader('X-Audio-Provider', result.provider);
-    res.setHeader('Cache-Control', 'private, max-age=3600');
-    res.send(result.audio);
-  }
-
-  @Post('transcriptions')
-  @HttpCode(HttpStatus.OK)
-  @UseInterceptors(FileInterceptor('file'))
-  @ApiConsumes('multipart/form-data')
-  @ApiOperation({ summary: 'Transcription vocale (STT) avec Whisper/Groq' })
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        file: { type: 'string', format: 'binary' },
-      },
-    },
-  })
-  async transcribe(@UploadedFile() file: Express.Multer.File) {
-    return this.audioService.transcribe(file);
+  /** Raw audio bytes in the body (any Content-Type; the container is identified from the bytes). */
+  @Post('transcriptions') @Protect('stt') @HttpCode(200) @Header('Cache-Control', 'no-store')
+  transcribe(@CurrentUserId() uid: string, @RequestId() rid: string, @Req() req: Request, @Query() query: TranscriptionQuery) {
+    return this.audio.transcribe(uid, Buffer.isBuffer(req.body) ? req.body : undefined, query.languageCode, rid);
   }
 }

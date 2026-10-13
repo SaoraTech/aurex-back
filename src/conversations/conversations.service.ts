@@ -24,7 +24,8 @@ export class ConversationsService {
   }
   async getMessages(userId: string, id: string) {
     await this.getOwned(userId, id);
-    return this.db.select().from(message).where(eq(message.conversationId, id)).orderBy(message.createdAt).limit(500);
+    const rows = await this.db.select().from(message).where(eq(message.conversationId, id)).orderBy(desc(message.createdAt)).limit(500);
+    return rows.reverse(); // most recent 500, chronological
   }
   async delete(userId: string, id: string) {
     await this.getOwned(userId, id);

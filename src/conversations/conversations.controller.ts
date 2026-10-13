@@ -1,3 +1,4 @@
+import { Protect } from '../security/protect.decorator';
 import { Body, Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
@@ -12,6 +13,7 @@ class CreateConversationDto {
 @ApiTags('conversations')
 @ApiBearerAuth()
 @UseGuards(RequireUserGuard)
+@Protect('read')
 @Controller('conversations')
 export class ConversationsController {
   constructor(private readonly service: ConversationsService) {}

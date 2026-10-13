@@ -1,3 +1,4 @@
+import { Protect } from '../security/protect.decorator';
 import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { IsBoolean, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
@@ -16,6 +17,7 @@ class UpdateMemoryDto {
   @IsOptional() @IsBoolean() pinned?: boolean;
 }
 @ApiTags('memory') @ApiBearerAuth() @UseGuards(RequireUserGuard)
+@Protect('read')
 @Controller('memory')
 export class MemoryController {
   constructor(private readonly service: MemoryService) {}

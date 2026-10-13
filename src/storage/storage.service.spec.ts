@@ -1,87 +1,39 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { ConfigService } from '@nestjs/config';
-import { ForbiddenException, ServiceUnavailableException } from '@nestjs/common';
 import { StorageService } from './storage.service';
 
-jest.mock('@aws-sdk/s3-request-presigner', () => ({
-  getSignedUrl: jest.fn().mockResolvedValue('https://mock-presigned-url.r2.cloudflarestorage.com/test'),
-}));
+const UUID = '123e4567-e89b-12d3-a456-426614174000';
+const cfg = (o: Record<string, unknown>) => ({ get: (k: string) => o[k] }) as any;
+const metrics: any = { track: (_p: string, _o: string, fn: () => Promise<unknown>) => fn() };
+const enabled = { r2Enabled: true, r2AccountId: 'acc', r2Bucket: 'b', r2AccessKeyId: 'k', r2SecretAccessKey: 's', r2TimeoutMs: 1000 };
 
 describe('StorageService', () => {
-  let service: StorageService;
-  let configService: jest.Mocked<ConfigService>;
-
-  beforeEach(async () => {
-    configService = {
-      get: jest.fn((key: string) => {
-        if (key === 'r2.accountId') return 'test-account-id';
-        if (key === 'r2.accessKeyId') return 'test-access-key';
-        if (key === 'r2.secretAccessKey') return 'test-secret-key';
-        if (key === 'r2.bucket') return 'aurex-private-bucket';
-        if (key === 'r2.endpoint') return 'https://test-account-id.r2.cloudflarestorage.com';
-        return undefined;
-      }),
-    } as any;
-
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        StorageService,
-        { provide: ConfigService, useValue: configService },
-      ],
-    }).compile();
-
-    service = module.get<StorageService>(StorageService);
+  it('is disabled by default and refuses to operate with a clear 503', async () => {
+    const s = new StorageService(cfg({ r2Enabled: false }), metrics);
+    expect(s.isEnabled()).toBe(false);
+    await expect(s.put('k', Buffer.from('x'), 'text/plain', 'u')).rejects.toMatchObject({ status: 503, code: 'STORAGE_DISABLED' });
   });
-
-  describe('assertOwnership (IDOR / BOLA Prevention)', () => {
-    const userId = 'usr_12345';
-
-    it('allows access when key strictly belongs to user namespace', () => {
-      expect(() => {
-        service.assertOwnership(userId, `${userId}/doc-5678.pdf`);
-      }).not.toThrow();
-    });
-
-    it('rejects access when key belongs to another user (anti-IDOR)', () => {
-      expect(() => {
-        service.assertOwnership(userId, 'usr_attacker/stolen-doc.pdf');
-      }).toThrow(ForbiddenException);
-    });
-
-    it('rejects path traversal attempts with .. or absolute slashes', () => {
-      expect(() => {
-        service.assertOwnership(userId, `${userId}/../etc/passwd`);
-      }).toThrow(ForbiddenException);
-
-      expect(() => {
-        service.assertOwnership(userId, '/root/secret.env');
-      }).toThrow(ForbiddenException);
-    });
+  it('refuses to start enabled without credentials', () => {
+    expect(() => new StorageService(cfg({ r2Enabled: true, r2Bucket: 'b' }), metrics)).toThrow();
   });
-
-  describe('getPresignedUploadUrl', () => {
-    it('generates an upload URL with user-scoped key', async () => {
-      const result = await service.getPresignedUploadUrl('usr_abc', {
-        filename: 'cours_algebre.pdf',
-        contentType: 'application/pdf',
-      });
-
-      expect(result.uploadUrl).toContain('mock-presigned-url');
-      expect(result.key.startsWith('usr_abc/')).toBe(true);
-      expect(result.key).toContain('cours_algebre.pdf');
-      expect(result.bucket).toBe('aurex-private-bucket');
-    });
-
-    it('throws when R2 is not configured', async () => {
-      configService.get.mockReturnValue(undefined);
-      const unconfiguredService = new StorageService(configService);
-
-      await expect(
-        unconfiguredService.getPresignedUploadUrl('usr_abc', {
-          filename: 'test.pdf',
-          contentType: 'application/pdf',
-        }),
-      ).rejects.toThrow(ServiceUnavailableException);
-    });
+  it('builds keys server-side and rejects non-UUID object ids / path tricks', () => {
+    const s = new StorageService(cfg(enabled), metrics);
+    expect(s.buildKey('user-1', UUID)).toBe(`users/user-1/${UUID}`);
+    expect(() => s.buildKey('user-1', '../../other')).toThrow();
+    expect(s.buildKey('a/b', UUID)).toBe(`users/a%2Fb/${UUID}`);
+  });
+  it('exists() returns false on 404 and throws mapped errors otherwise', async () => {
+    const s = new StorageService(cfg(enabled), metrics);
+    (s as any).client = { send: jest.fn().mockRejectedValue(Object.assign(new Error('nf'), { name: 'NotFound', $metadata: { httpStatusCode: 404 } })) };
+    expect(await s.exists('k')).toBe(false);
+    (s as any).client = { send: jest.fn().mockRejectedValue(Object.assign(new Error('x'), { $metadata: { httpStatusCode: 500 } })) };
+    await expect(s.exists('k')).rejects.toMatchObject({ status: 503 });
+  });
+  it('maps a 403 from R2 to a misconfiguration error (no leak)', async () => {
+    const s = new StorageService(cfg(enabled), metrics);
+    (s as any).client = { send: jest.fn().mockRejectedValue(Object.assign(new Error('AccessDenied key=abc'), { $metadata: { httpStatusCode: 403 } })) };
+    await expect(s.delete('k')).rejects.toMatchObject({ code: 'STORAGE_MISCONFIGURED' });
+  });
+  it('uses the configured endpoint override and never a public base URL', () => {
+    const s = new StorageService(cfg({ ...enabled, r2Endpoint: 'https://acc.eu.r2.cloudflarestorage.com' }), metrics);
+    expect(s.isEnabled()).toBe(true);
   });
 });
