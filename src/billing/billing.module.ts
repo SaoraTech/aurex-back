@@ -1,5 +1,12 @@
 import { Module } from '@nestjs/common';
+import { PlansModule } from '../plans/plans.module';
 import { BillingController } from './billing.controller';
 import { BillingService } from './billing.service';
-@Module({ controllers: [BillingController], providers: [BillingService], exports: [BillingService] })
+
+@Module({
+  imports: [PlansModule],
+  controllers: [BillingController],
+  providers: [BillingService],
+  exports: [BillingService],
+})
 export class BillingModule {}
