@@ -1,202 +1,243 @@
 Aurex Backend
 
-The central API powering Aurex across platforms.
+The backend powering Aurex, Saora's mathematics-focused AI assistant.
 
-Aurex Backend is the server-side foundation of Aurex, Saora's mathematics-focused conversational assistant. It provides a shared API for Aurex clients, including Web, Android, iOS, and Desktop applications.
+""TypeScript" (https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)" (https://www.typescriptlang.org/)
+""NestJS" (https://img.shields.io/badge/NestJS-E0234E?logo=nestjs&logoColor=white)" (https://nestjs.com/)
+""PostgreSQL" (https://img.shields.io/badge/PostgreSQL-4169E1?logo=postgresql&logoColor=white)" (https://www.postgresql.org/)
+""Hugging Face" (https://img.shields.io/badge/Hugging%20Face-SaoraTech-FFD21E?logo=huggingface&logoColor=black)" (https://huggingface.co/SaoraTech)
 
-Built with NestJS and TypeScript, it centralizes authentication, conversations, AI provider orchestration, subscription-based access, mathematical computation, voice services, web research, file storage, and application security.
+Aurex Backend is the server-side foundation of Aurex, a Saora product designed to help students understand mathematics, solve problems, and develop stronger mathematical reasoning through conversational AI.
 
-«Project status: Deployed on Render and undergoing technical validation. Deployment does not imply that every feature or third-party integration has been validated end to end.»
+It provides the APIs and backend services needed to support Aurex clients across mobile, web, and desktop platforms.
+
+«Project: Aurex Backend
+Organization: SaoraTech
+Status: Under active development
+Production API: https://aurex-back.onrender.com»
+
+---
 
 Table of Contents
 
-- "Overview" (#overview)
+- "About Aurex" (#about-aurex)
 - "Core Capabilities" (#core-capabilities)
 - "Architecture" (#architecture)
 - "Technology Stack" (#technology-stack)
-- "Third-Party Integrations" (#third-party-integrations)
-- "API Documentation" (#api-documentation)
-- "Local Development" (#local-development)
+- "AI and Third-Party Integrations" (#ai-and-third-party-integrations)
+- "SaoraTech on Hugging Face" (#saoratech-on-hugging-face)
+- "API Overview" (#api-overview)
+- "Getting Started" (#getting-started)
 - "Environment Configuration" (#environment-configuration)
 - "Database and Migrations" (#database-and-migrations)
-- "Testing and Quality Assurance" (#testing-and-quality-assurance)
+- "Testing" (#testing)
 - "Security" (#security)
 - "Deployment" (#deployment)
-- "Known Limitations" (#known-limitations)
 - "Project Documentation" (#project-documentation)
+- "Roadmap and Future Integrations" (#roadmap-and-future-integrations)
+- "Contributing" (#contributing)
+- "License" (#license)
 
-Overview
+---
 
-Aurex Backend provides a common server-side foundation for Aurex applications. Instead of implementing authentication, subscription rules, provider access, and conversation management separately in every client, the backend centralizes these responsibilities.
+About Aurex
 
-Its primary objectives are to:
+Aurex is a mathematics-focused conversational assistant developed within the Saora ecosystem.
 
-- Provide a consistent API across supported clients.
-- Manage authentication and user-owned data.
-- Orchestrate AI providers according to server-side access rules.
-- Support mathematics-related workflows and complementary services.
-- Apply quotas, security controls, and usage tracking.
-- Make the platform easier to maintain and extend.
+Its purpose is not merely to provide answers. It aims to help learners understand mathematical concepts, follow explanations, explore different approaches, and improve their ability to reason independently.
+
+Vision
+
+Make high-quality mathematical assistance more accessible to learners, beginning with university students in West Africa and expanding to a broader audience.
+
+Mission
+
+Provide an intelligent, accessible, and reliable mathematical learning experience through conversational assistance and specialized mathematical tools.
+
+Target users
+
+- University and college students
+- Students studying mathematics and related disciplines
+- Independent learners
+- Educators and other users who need mathematical assistance
+
+Aurex Backend provides the server-side capabilities that support this experience.
 
 Core Capabilities
 
-AI Conversations
+The backend is designed to support the following areas, depending on the enabled configuration and available integrations.
 
-- Persistent conversations and messages.
-- Configurable AI model selection.
-- Server-side model authorization based on the effective subscription plan.
-- Controlled provider fallback and configurable timeouts.
-- Provider usage and response latency tracking.
-- Centralized Aurex identity and behavioral instructions.
+1. Conversational AI
 
-Authentication and Access Control
+- AI-powered mathematical conversations
+- Message and conversation management
+- Multi-provider AI routing
+- Model availability and selection
+- Server-side plan and access checks
 
-- Better Auth integration.
-- Session-based authentication and Bearer authentication support for native clients.
-- User-specific access controls for conversations and stored resources.
-- Server-side subscription and plan resolution.
+2. Mathematical computation
 
-Mathematical Computation
+- Mathematical computation through an external symbolic mathematics service
+- A dedicated mathematical API layer
+- Support for integrating specialized mathematical services into conversational workflows
 
-- Wolfram|Alpha integration through the mathematics module.
-- A dedicated computation endpoint.
-- Separation between conversational AI responses and mathematical computation.
+Important: Language models can explain and orchestrate mathematical workflows, but deterministic calculations should be delegated to suitable mathematical engines whenever possible.
 
-A successful conversational response must not be treated as proof of formal mathematical verification unless the relevant computation was actually performed.
+3. Audio and voice
 
-Voice Services
+- Text-to-speech integration
+- Speech-to-text and audio transcription
+- Support for configured speech providers and fallback services
 
-- Text-to-speech through ElevenLabs.
-- Speech-to-text through ElevenLabs.
-- Optional speech recognition fallback through Groq.
-- Configurable language, model, voice, and upload limits.
-- Subscription-based usage limits.
+4. Search and research
 
-Web Search and Research
+- Web search integration
+- Research-oriented workflows
+- Support for retrieving external information where configured
 
-- Web search through Tavily.
-- Optional web search in chat.
-- A separate research workflow for deeper searches.
-- Source references and research result handling.
-- Configurable request budgets, timeouts, and caching.
+5. User content and document management
 
-File Library and Storage
+- Document and library management
+- Conversation-related content
+- Versioned artifacts where implemented
+- Privacy-related request handling
 
-- Private Cloudflare R2 object storage.
-- User-owned file metadata.
-- File upload, listing, download URL generation, and deletion.
-- File type verification using binary signatures.
-- File-size and storage quotas.
+6. Operational monitoring
 
-Platform Operations
+- Health and readiness endpoints
+- Request identifiers and structured logging
+- Metrics for monitoring backend behavior
+- Error handling and service diagnostics
 
-- Readiness and health endpoints.
-- Structured JSON logging and request correlation.
-- Prometheus-compatible metrics with token protection.
-- Security controls through Arcjet.
-- Audit events, versioned artifacts, and privacy request handling.
-
-Important: The capabilities above describe the implementation documented in the repository. Their actual availability depends on configuration, database state, provider access, and successful integration testing.
+The exact availability of each capability depends on the current implementation, environment configuration, and status of its external providers.
 
 Architecture
 
-Aurex Backend follows a modular NestJS architecture.
+Aurex Backend is built around a modular server-side architecture.
 
 Aurex Clients
-Web · Android · iOS · Desktop
-             |
-             v
-       Aurex Backend
-        NestJS API
-             |
-   +---------+----------+
-   |         |          |
- Auth     Chat / AI   Security
-   |         |          |
-   +---------+----------+
-             |
-   +---------+-------------------+
-   |         |         |         |
- Database  Math      Audio    Research
-   |         |         |         |
- Neon      Wolfram   ElevenLabs Tavily
- PostgreSQL Alpha     / Groq
-             |
-       Private Storage
-       Cloudflare R2
+(Mobile / Web / Desktop)
+          |
+          v
+      Aurex Backend
+     (NestJS / REST API)
+          |
+          +---- Authentication & Access Control
+          |
+          +---- Conversational AI & Model Routing
+          |
+          +---- Mathematical Services
+          |
+          +---- Audio & Speech
+          |
+          +---- Search & Research
+          |
+          +---- Library & Content Management
+          |
+          +---- Billing & Plans
+          |
+          +---- Monitoring & Security
+          |
+          v
+ PostgreSQL / External Providers
 
-This is a conceptual overview, not an exhaustive deployment diagram. Optional services require their respective configuration and credentials.
+Architectural principles
+
+- Modularity: Keep application responsibilities separated into maintainable modules.
+- Security: Enforce authentication, validation, and access control on the server.
+- Provider abstraction: Avoid coupling application logic unnecessarily to a single AI provider.
+- Reliability: Use health checks, structured logging, and tests to identify problems.
+- Extensibility: Allow future Saora services to integrate without redesigning the entire backend.
+
+This diagram describes the intended high-level architecture, not a guarantee that every component is fully implemented or operational in every environment.
 
 Technology Stack
 
-Layer| Technology
-Backend framework| NestJS 11
+Component| Technology
 Language| TypeScript
-Runtime| Node.js 22.21+
-Database| PostgreSQL on Neon
-ORM and migrations| Drizzle ORM / Drizzle Kit
+Backend framework| NestJS
+Runtime| Node.js
+Database| PostgreSQL
+Database ORM| Drizzle ORM
+Database hosting| Neon
 Authentication| Better Auth
-Validation| Zod, class-validator
-API documentation| Swagger / OpenAPI
-Security| Arcjet, Helmet, CORS policies
-Observability| Structured logs, Prometheus metrics
-Object storage| Cloudflare R2
-AI and research services| Multiple external providers
+Deployment| Render
+AI and specialized services| External provider integrations
+Security| Arcjet integration
+Media storage| Cloudflare R2 integration
+Monitoring| Prometheus-compatible metrics
 
-Third-Party Integrations
+The exact package versions and scripts are defined in the repository's "package.json" and lockfile.
 
-The backend uses external services for selected capabilities.
+AI and Third-Party Integrations
 
-Integration| Purpose| Validation status
-Gemini, Groq, Kimi, Qwen, DeepSeek, Grok| AI generation| Real provider access must be tested
-Wolfram|Alpha| Mathematical computation| Real provider access must be tested
-ElevenLabs| Speech generation and transcription| Documented as implemented; real integration test pending
-Cloudflare R2| Private file storage| Documented as implemented; real integration test pending
-Tavily| Web search and research| Documented as implemented; real integration test pending
-Arcjet| Application security| Documented as implemented; production policy validation required
-Neon| PostgreSQL database| Verify connectivity and migrations in the target environment
-Novu, Resend, payment providers| Notifications and payments| Not implemented as active integrations
+Aurex Backend is designed to work with specialized external services rather than relying on a single provider for every capability.
 
-The presence of an environment variable does not mean that a service is operational. A provider should only be marked as verified after successful tests using the real service and appropriate credentials.
+Service| Intended role
+Kimi| Conversational AI provider
+Qwen| Conversational AI provider
+DeepSeek| Conversational AI provider
+Grok| Conversational AI provider
+Gemini| Conversational AI provider
+Groq| AI inference and configured speech-related workflows
+ElevenLabs| Text-to-speech and speech-related capabilities
+Whisper| Speech transcription
+Tavily| Web search and research
+Wolfram|Alpha| Mathematical computation and symbolic results
+Cloudflare R2| Object and media storage
+Arcjet| Application security
+Neon| Managed PostgreSQL database
+Render| Backend deployment and hosting
 
-API Documentation
+The provider list describes integrations planned or represented in the project architecture. It does not guarantee that every provider has valid credentials, is enabled in the current deployment, or has passed an end-to-end production test.
 
-The API uses the "/api/v1" prefix for versioned application endpoints.
+Provider configuration should be managed through environment variables. Never commit API keys, access tokens, database credentials, or other secrets to the repository.
 
-When enabled, Swagger UI is available at:
+SaoraTech on Hugging Face
 
-http://localhost:3000/docs
+SaoraTech maintains an official presence on Hugging Face, a platform used by the machine-learning community to discover and share models, datasets, and AI applications.
 
-The documentation endpoint is disabled in production by default unless explicitly configured otherwise.
+Official profile: "huggingface.co/SaoraTech" (https://huggingface.co/SaoraTech)
 
-Main Endpoint Groups
+This space can serve as a public entry point for SaoraTech's AI and research activities, including future model experiments, datasets, and demonstrations when they are published.
 
-Endpoint| Purpose
-"/api/v1/health"| Health check
-"/api/v1/health/ready"| Readiness check
-"/api/v1/identity"| Public Aurex identity and capability information
-"/api/v1/ai/models"| Models permitted for the authenticated user
-"/api/v1/chat/messages"| Chat message submission
+Hugging Face is part of the broader AI research ecosystem around SaoraTech. Its inclusion here does not imply that Aurex currently runs on a Saora-owned model hosted on Hugging Face.
+
+API Overview
+
+The backend exposes versioned API routes under "/api/v1".
+
+The following route families are intended to help developers navigate the API. Verify each route against the current controllers and deployment before relying on it in a client application.
+
+Route| Purpose
+"/api/v1/health"| Basic service health
+"/api/v1/health/ready"| Readiness checks
+"/api/v1/identity"| Identity-related operations
+"/api/v1/ai/models"| Available AI models
+"/api/v1/chat/messages"| Conversational messaging
 "/api/v1/math/compute"| Mathematical computation
-"/api/v1/audio/speech"| Text-to-speech
-"/api/v1/audio/transcriptions"| Speech-to-text
-"/api/v1/research/search"| Web search
-"/api/v1/research/deep"| Deep research
-"/api/v1/library/documents"| User file library
-"/api/v1/metrics"| Protected Prometheus metrics
+"/api/v1/audio/speech"| Speech generation
+"/api/v1/audio/transcriptions"| Audio transcription
+"/api/v1/research/search"| Search
+"/api/v1/research/deep"| Research workflows
+"/api/v1/library/documents"| Document and library operations
+"/api/v1/metrics"| Operational metrics, where enabled
 
-Authentication is handled through Better Auth routes under "/api/auth".
+Request methods, authentication requirements, request bodies, response schemas, and error formats should be taken from the current implementation.
 
-Consult the generated Swagger specification and the relevant controllers before relying on request payloads, response schemas, or authentication requirements.
+There is no public third-party developer API offering announced in this README. These endpoints primarily support Aurex's own clients and services.
 
-Local Development
+Getting Started
 
 Prerequisites
 
-- Node.js 22.21 or later.
-- npm.
-- A PostgreSQL database, preferably a Neon development database.
-- API credentials for the external services you intend to test.
+Install the following tools:
+
+- Node.js version compatible with the repository
+- npm
+- Git
+- A PostgreSQL database, such as a Neon project
+- Credentials for whichever external services you intend to enable
 
 1. Clone the repository
 
@@ -207,161 +248,195 @@ cd aurex-back
 
 npm ci
 
+If the repository does not contain a compatible lockfile, use the package manager and installation procedure documented by the project instead.
+
 3. Configure environment variables
 
-Create a local environment file:
+Create a local environment file using the example supplied by the repository:
 
 cp .env.example .env
 
-Configure the database connection, authentication secret, trusted origins, and the credentials for the integrations you need.
+If ".env.example" is not present in the current branch, consult the project's configuration documentation before creating the file manually.
 
-Never commit a real ".env" file or production credentials.
+Set the required database connection, authentication settings, security configuration, and provider credentials locally.
 
-4. Generate and review database migrations
+4. Prepare the database
+
+Check the available database scripts in "package.json", then run the repository's documented schema-generation and migration commands.
+
+For example, if these scripts are defined in the current version:
 
 npm run db:generate
 npm run db:migrate
 
-Review the generated SQL and apply migrations to a development database before testing against any shared or production database.
+Do not run production migrations against a database unless you have verified the target connection and reviewed the migration changes.
 
 5. Start the development server
 
 npm run start:dev
 
-The default local API address is:
+Use the configured local port and API prefix to access the service.
 
-http://localhost:3000
+6. Build the application
 
-Swagger UI is available at "/docs" when enabled.
+npm run build
+
+The build and development commands must match the scripts defined in the current "package.json".
 
 Environment Configuration
 
-The complete list of configuration options is maintained in ".env.example".
+Configuration is managed through environment variables.
 
-Important configuration groups include:
+Depending on the enabled modules, the application may require values for:
 
-- Core: "NODE_ENV", "PORT", "LOG_LEVEL"
-- Database and authentication: "DATABASE_URL", "BETTER_AUTH_SECRET", "BETTER_AUTH_URL"
-- Network and CORS: "TRUSTED_ORIGINS", "CORS_ORIGIN", "TRUSTED_PROXIES"
-- AI providers: provider API keys, model IDs, timeouts, fallback limits
-- Voice: "ELEVENLABS_ENABLED", ElevenLabs credentials, speech configuration
-- Storage: "R2_ENABLED" and private R2 credentials
-- Research: "TAVILY_ENABLED" and "TAVILY_API_KEY"
-- Security: "ARCJET_KEY", "ARCJET_MODE"
-- Observability: "METRICS_TOKEN"
-- Plans and quotas: "PLAN_LIMITS_JSON", "PLAN_PRICES_JSON"
+- Database connectivity
+- Authentication and session management
+- AI provider API keys
+- Speech and transcription providers
+- Search and mathematical computation providers
+- Object storage
+- Security services
+- Logging and monitoring
 
-Do not publish actual secret values in documentation, logs, issues, or client applications.
+Use ".env.example" and the current configuration files as the source of truth for exact variable names and required values.
+
+Security requirements
+
+- Do not commit ".env" files containing secrets.
+- Do not expose private API keys in client applications.
+- Use separate credentials for development and production.
+- Rotate credentials if they are accidentally exposed.
+- Configure production environment variables through the hosting provider's secure settings.
 
 Database and Migrations
 
-Drizzle ORM manages PostgreSQL access and schema migrations.
+Aurex Backend uses PostgreSQL with Drizzle ORM.
 
-Available commands:
+The database layer supports the application's persistent data requirements, including the entities needed by enabled identity, conversation, and content-management features.
 
-npm run db:generate
-npm run db:check
-npm run db:migrate
+Before changing the schema:
 
-Recommended workflow:
+1. Review the existing Drizzle schema files.
+2. Generate or prepare the migration using the repository's documented workflow.
+3. Review the generated SQL.
+4. Test migrations against a development database.
+5. Back up important production data before applying risky changes.
 
-1. Update the schema.
-2. Generate the migration.
-3. Review the SQL and any destructive operations.
-4. Apply the migration to a development database.
-5. Run relevant tests.
-6. Back up and validate the target database before production changes.
+Exact commands and schema details should be verified against the current repository.
 
-Do not use schema-push shortcuts as a substitute for reviewed production migrations.
+Testing
 
-Testing and Quality Assurance
+Automated tests help protect application behavior and detect regressions.
 
-Available scripts include:
+The repository has included unit and integration tests during development. The current test count and passing status can change as code evolves.
 
-npm run build
-npm run lint
+Run the scripts that exist in the current "package.json". Typical commands may include:
+
 npm test
 npm run test:e2e
+npm run build
+npm run lint
 
-For a deployment candidate, validate:
+Not every command above is guaranteed to exist in every revision.
 
-- Dependency installation and TypeScript compilation.
-- Unit and end-to-end tests using the real project toolchain.
-- Database migrations against a test database.
-- Authentication and user authorization.
-- AI provider access, timeouts, quotas, and fallback behavior.
-- Voice, research, and storage integrations using real service credentials.
-- Health and readiness checks.
-- Client integration and error handling.
+A successful unit test suite does not automatically prove that external providers, production credentials, database migrations, or deployed endpoints work end to end.
 
-Do not describe the backend as fully tested until these checks have been executed successfully in a reproducible environment.
+Before a release, validate:
+
+- Build and type-check results
+- Unit and integration tests
+- Database connectivity and migrations
+- Authentication and access controls
+- Configured provider calls
+- Health and readiness endpoints
+- Error handling and security configuration
 
 Security
 
-Security principles include:
+Security is an important part of the Aurex backend.
 
-- Resolve user identity and subscription privileges on the server.
-- Never trust a client-provided plan, quota, payment state, or billing amount.
-- Keep provider credentials on the server.
-- Restrict cross-origin access to approved origins.
-- Validate incoming payloads and reject unexpected fields.
-- Verify resource ownership before reading, modifying, or deleting user data.
-- Keep private object storage private.
-- Redact credentials and sensitive information from logs.
-- Review database migrations and maintain backups.
+The project includes or is designed to support:
 
-Uploaded files receive type and signature checks, but the documented implementation does not include antivirus or content scanning. Do not assume that valid file signatures guarantee safe file contents.
+- Server-side authentication and authorization
+- Request validation
+- Security controls through Arcjet where enabled
+- Restricted access to private storage
+- Structured logging and request identifiers
+- Careful handling of sensitive information
+- Server-side enforcement of subscription or plan restrictions
+
+Security controls must be verified against the current code and production configuration. A dependency being installed does not by itself prove that it is correctly configured or protecting every relevant route.
+
+Please report suspected security vulnerabilities privately to the project maintainers rather than publishing exploit details or credentials.
 
 Deployment
 
-Aurex Backend is configured as a Render web service.
+The backend is deployed through Render.
 
-- Repository: "SaoraTech/aurex-back" (https://github.com/SaoraTech/aurex-back)
-- Live API: "aurex-back.onrender.com" (https://aurex-back.onrender.com)
-- Render dashboard: "Manage the service" (https://dashboard.render.com/web/srv-db7kcpad0e5s73e6molg)
+- Live service: "aurex-back.onrender.com" (https://aurex-back.onrender.com)
+- Render dashboard: "Open service dashboard" (https://dashboard.render.com/web/srv-db7kcpad0e5s73e6molg)
+- Source repository: "SaoraTech/aurex-back" (https://github.com/SaoraTech/aurex-back)
 
-Configured build command:
+Production deployment requires correct environment variables, database access, and configuration for the external providers that are enabled.
 
-npm ci --include=dev && npm run build
+After deploying a change:
 
-Configured start command:
+1. Inspect the deployment logs.
+2. Confirm that the deployment finishes successfully.
+3. Check the health and readiness endpoints.
+4. Verify database connectivity.
+5. Test the relevant API routes.
+6. Validate any affected external integrations.
 
-npm run start
-
-Configured readiness path:
-
-/api/v1/health/ready
-
-A successful deployment confirms that the deployment process completed. It does not replace functional, security, database, and provider integration tests.
-
-Known Limitations
-
-Before opening the product to customers, verify the following:
-
-- Real provider authentication, model availability, quotas, and costs.
-- Arcjet policies and trusted proxy configuration in the deployed environment.
-- Cloudflare R2 bucket privacy, permissions, upload and download behavior.
-- ElevenLabs and Groq speech requests and fallback behavior.
-- Tavily search and research behavior, including source handling.
-- Database migrations and schema consistency.
-- Subscription periods, pricing, quotas, and payment workflows.
-- Data retention, account deletion, and privacy request procedures.
-- File scanning and lifecycle management.
-- Build, unit tests, and end-to-end tests using the real dependencies.
-
-Pricing and quota defaults are configurable and should not be treated as finalized commercial terms.
-
-Payment processing and the Novu/Resend notification adapters are not active implementations in the current documented codebase.
+A successful deployment or HTTP 200 health response confirms only the checks covered by that response. It does not prove that all product features are functioning correctly.
 
 Project Documentation
 
-For implementation details, consult:
+For implementation details, consult the documentation maintained in the repository.
 
-- ""docs/INTEGRATIONS.md"" (docs/INTEGRATIONS.md) — integration behavior, configuration, and limitations.
-- ""docs/AUDIT.md"" (docs/AUDIT.md) — code audit findings and outstanding verification work.
-- "".env.example"" (.env.example) — environment configuration reference.
-- ""package.json"" (package.json) — scripts and dependencies.
+Useful documentation areas may include:
+
+- Architecture and module boundaries
+- API contracts and examples
+- Environment configuration
+- Database schemas and migrations
+- Testing procedures
+- Security and deployment notes
+- Provider integration guides
+
+Documentation should be updated alongside code changes so that developers can distinguish implemented features from planned work.
+
+Roadmap and Future Integrations
+
+Aurex is part of the broader Saora ecosystem. Its backend may evolve as Saora develops additional infrastructure and mathematical capabilities.
+
+Potential future integration areas include:
+
+- Alpha: Saora's AI and research subsidiary, intended to develop future AI models and intelligence technologies.
+- SMP — Saora Mathematics Platform: A specialized platform for mathematical computation, verification, and generation.
+- SVP — Saora Vision Platform: A platform for visual understanding.
+- SMV — Saora Mathematics Vision: A mathematical-vision layer designed to process visual mathematical content through the combination of vision and mathematical capabilities.
+- Saora Cloud: Saora's planned sovereign cloud platform for developers, businesses, and organizations.
+
+These are future-facing ecosystem directions, not claims that those services are already available or integrated into the current deployment. Any integration should be added when the relevant service exists and its contract, security, and operational requirements are defined.
+
+Contributing
+
+Aurex Backend is part of SaoraTech's ongoing engineering work.
+
+Before proposing or implementing a change:
+
+1. Understand the relevant module and its existing interfaces.
+2. Follow the repository's conventions.
+3. Avoid committing secrets or personal data.
+4. Add or update tests when changing behavior.
+5. Update documentation when API contracts or configuration change.
+6. Verify the build and relevant tests before merging.
+
+For major architectural changes, document the motivation, alternatives, and potential impact before implementation.
 
 License
 
-Check the repository's license file before redistributing or reusing this project.
+Please consult the repository's "LICENSE" file for the applicable terms.
+
+If no license file is present, the project should not be assumed to be open source or available for unrestricted reuse.
