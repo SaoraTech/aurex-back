@@ -58,6 +58,9 @@ export const envFactory = () => {
 
     wolframAppId: e.WOLFRAM_APP_ID,
     novuApiKey: e.NOVU_API_KEY, novuAppIdentifier: e.NOVU_APP_IDENTIFIER,
+    novuApiUrl: e.NOVU_API_URL ?? 'https://api.novu.co',
+    adminEmails: list(e.ADMIN_EMAILS),
+    quotaPoliciesJson: e.QUOTA_POLICIES_JSON,
     paymentProvider: e.PAYMENT_PROVIDER ?? 'disabled',
   };
 };

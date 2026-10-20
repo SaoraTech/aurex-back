@@ -139,3 +139,63 @@ export const providerUsage = pgTable('provider_usage', {
   requestId: text('request_id'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 }, t => ({ userKindIdx: index('provider_usage_user_kind_idx').on(t.userId, t.kind, t.createdAt) }));
+
+/** Announcements and changelog entries (Nouveautés). */
+export const announcement = pgTable('announcement', {
+  id: text('id').primaryKey(),
+  title: varchar('title', { length: 255 }).notNull(),
+  summary: text('summary').notNull(),
+  content: text('content').notNull(),
+  category: varchar('category', { length: 50 }).notNull().default('feature'),
+  status: varchar('status', { length: 20 }).notNull().default('draft'), // draft, pending_review, published, archived
+  targetAudience: varchar('target_audience', { length: 20 }).notNull().default('all'), // all, free, plus, pro
+  link: text('link'),
+  publicationMode: varchar('publication_mode', { length: 20 }).notNull().default('hybrid'), // manual, automatic, hybrid
+  publishedAt: timestamp('published_at'),
+  publishedBy: text('published_by'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, t => ({
+  statusPubIdx: index('announcement_status_pub_idx').on(t.status, t.publishedAt),
+}));
+
+/** Atomic quota usage tracking by time window. */
+export const featureQuotaUsage = pgTable('feature_quota_usage', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  feature: varchar('feature', { length: 60 }).notNull(),
+  windowStart: timestamp('window_start').notNull(),
+  windowEnd: timestamp('window_end').notNull(),
+  usedCount: integer('used_count').notNull().default(0),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, t => ({
+  userFeatureWindowIdx: uniqueIndex('feature_quota_user_window_idx').on(t.userId, t.feature, t.windowStart),
+}));
+
+/** Ledger of operations for concurrency protection and idempotent compensation. */
+export const featureQuotaLedger = pgTable('feature_quota_ledger', {
+  id: text('id').primaryKey(), // operationId / requestId
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  feature: varchar('feature', { length: 60 }).notNull(),
+  status: varchar('status', { length: 20 }).notNull(), // reserved, consumed, refunded, timed_out
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, t => ({
+  userFeatureLedgerIdx: index('quota_ledger_user_feat_idx').on(t.userId, t.feature, t.createdAt),
+}));
+
+/** Active temporary blocks for adaptive penalty against repeated flood attempts. */
+export const featureBlock = pgTable('feature_block', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  feature: varchar('feature', { length: 60 }).notNull(),
+  blockedUntil: timestamp('blocked_until').notNull(),
+  reason: varchar('reason', { length: 100 }).notNull(),
+  violationCount: integer('violation_count').notNull().default(1),
+  lastViolationAt: timestamp('last_violation_at').notNull().defaultNow(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, t => ({
+  userFeatureBlockIdx: uniqueIndex('feature_block_user_feat_idx').on(t.userId, t.feature),
+}));

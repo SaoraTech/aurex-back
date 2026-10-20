@@ -22,13 +22,35 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { AuditModule } from './audit/audit.module';
 import { AudioModule } from './audio/audio.module';
 import { ResearchModule } from './research/research.module';
+import { AnnouncementsModule } from './announcements/announcements.module';
+import { QuotasModule } from './quotas/quotas.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, load: [envFactory] }),
-    DbModule, ObservabilityModule, ProvidersModule, IdentityModule, AuthModule, SecurityModule, HealthModule,
-    AiModule, MathModule, ConversationsModule, ChatModule, PlansModule, BillingModule, MemoryModule,
-    ArtifactsModule, LibraryModule, PrivacyModule, NotificationsModule, AuditModule, AudioModule, ResearchModule,
+    DbModule,
+    ObservabilityModule,
+    ProvidersModule,
+    IdentityModule,
+    AuthModule,
+    SecurityModule,
+    HealthModule,
+    AiModule,
+    MathModule,
+    ConversationsModule,
+    ChatModule,
+    PlansModule,
+    BillingModule,
+    MemoryModule,
+    ArtifactsModule,
+    LibraryModule,
+    PrivacyModule,
+    NotificationsModule,
+    AuditModule,
+    AudioModule,
+    ResearchModule,
+    AnnouncementsModule,
+    QuotasModule,
   ],
 })
 export class AppModule {}

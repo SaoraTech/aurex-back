@@ -84,7 +84,9 @@ const schema = z.object({
   RESEARCH_DEADLINE_MS: z.coerce.number().int().min(5000).max(180000).default(60000),
 
   WOLFRAM_APP_ID: optStr,
-  NOVU_API_KEY: optStr, NOVU_APP_IDENTIFIER: optStr, RESEND_API_KEY: optStr,
+  NOVU_API_KEY: optStr, NOVU_APP_IDENTIFIER: optStr, NOVU_API_URL: z.string().url().default('https://api.novu.co'), RESEND_API_KEY: optStr,
+  ADMIN_EMAILS: z.string().default(''),
+  QUOTA_POLICIES_JSON: optStr,
   PAYMENT_PROVIDER: z.enum(['disabled', 'intouch', 'cinetpay', 'paytech', 'custom']).default('disabled'),
   PAYMENT_WEBHOOK_SECRET: optStr,
   PAYMENT_RETURN_URL: z.string().url().optional(),
