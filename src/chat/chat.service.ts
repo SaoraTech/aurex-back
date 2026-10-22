@@ -8,7 +8,7 @@ import { ConversationsService } from '../conversations/conversations.service';
 import { DRIZZLE } from '../db/db.constants';
 import { conversation, memoryItem, message } from '../db/schema';
 import { IdentityService } from '../identity/identity.service';
-import { startOfUtcDay, startOfUtcMonth } from '../observability/usage.service';
+import { startOfUtcDay, startOfUtcMonth, UsageService } from '../observability/usage.service';
 import { PlansService } from '../plans/plans.service';
 import { WebResearchService } from '../research/web-research.service';
 
@@ -26,6 +26,7 @@ export class ChatService {
     private readonly plans: PlansService,
     private readonly identity: IdentityService,
     private readonly research: WebResearchService,
+    private readonly usage: UsageService,
   ) {}
 
   /** Quota unit = a delivered assistant answer (a failed generation does not consume quota). UTC day/month. */
@@ -88,6 +89,15 @@ export class ChatService {
     if (web.block && history.length) history[history.length - 1] = { role: 'user', content: `${history[history.length - 1].content}\n\n${web.block}` };
 
     const result = await this.ai.generate(plan, history, input.model, { systemInstruction });
+    void this.usage.record({
+      userId,
+      kind: 'llm_call',
+      provider: result.provider,
+      units: result.tokens ?? 1,
+      latencyMs: result.latencyMs,
+      outcome: 'ok',
+      requestId: input.requestId,
+    });
 
     const assistant = {
       id: newId(), conversationId: convo.id, role: 'assistant' as const, content: result.text, provider: result.provider, model: result.model,

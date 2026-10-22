@@ -17,7 +17,8 @@
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:check": "drizzle-kit check"
+    "db:check": "drizzle-kit check",
+    "test:load": "node tests/load/resilience-benchmark.js"
   },
   "dependencies": {
     "@arcjet/node": "^1.0.0",
