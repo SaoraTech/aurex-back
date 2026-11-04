@@ -1,14 +1,11 @@
 import { Module } from '@nestjs/common';
-import { PlansModule } from '../plans/plans.module';
-import { GeminiService } from './gemini.service';
-import { OpenAiCompatibleService } from './openai-compatible.service';
+import { ObservabilityModule } from '../observability/observability.module';
 import { AiOrchestratorService } from './ai-orchestrator.service';
-import { GroqSpeechService } from './groq-speech.service';
-import { AiController } from './ai.controller';
+import { GroqLlmService } from './groq-llm.service';
+
 @Module({
-  imports: [PlansModule],
-  providers: [GeminiService, OpenAiCompatibleService, AiOrchestratorService, GroqSpeechService],
-  controllers: [AiController],
-  exports: [GeminiService, AiOrchestratorService, GroqSpeechService],
+  imports: [ObservabilityModule],
+  providers: [GroqLlmService, AiOrchestratorService],
+  exports: [GroqLlmService, AiOrchestratorService],
 })
 export class AiModule {}

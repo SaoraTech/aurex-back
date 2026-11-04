@@ -1,34 +1,58 @@
-import { ConflictException, Inject, Injectable, ServiceUnavailableException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { and, eq } from 'drizzle-orm';
-import { DRIZZLE } from '../db/db.constants';
-import { payment } from '../db/schema';
-import { newId } from '../common/ids';
-import { PlansService, PlanName } from '../plans/plans.service';
+import { Injectable, Logger } from '@nestjs/common';
+import { badRequest, unauthorized } from '../common/errors';
+import { PlansService } from '../plans/plans.service';
+import { JemenipayProvider } from './providers/jemenipay.provider';
+import { PaymentMethodType } from './providers/payment-provider.interface';
 
 @Injectable()
 export class BillingService {
-  constructor(@Inject(DRIZZLE) private readonly db: any, private readonly config: ConfigService, private readonly plans: PlansService) {}
+  private readonly logger = new Logger(BillingService.name);
 
-  async createCheckout(userId: string, plan: PlanName, idempotencyKey: string) {
-    if (!idempotencyKey || idempotencyKey.length > 120) throw new ConflictException('A valid Idempotency-Key is required');
-    if (plan === 'free') throw new ConflictException('Free plan does not require checkout');
-    const provider = this.config.get<string>('paymentProvider') ?? 'disabled';
-    if (provider === 'disabled') throw new ServiceUnavailableException('Payments are not enabled until a provider is approved and configured');
-    // Deliberately fail closed: provider-specific signed checkout adapters must be implemented and tested before enabling a provider.
-    throw new ServiceUnavailableException(`Payment provider "${provider}" has no validated adapter configured`);
+  constructor(
+    private readonly jemenipay: JemenipayProvider,
+    private readonly plans: PlansService,
+  ) {}
+
+  async checkout(
+    userId: string,
+    email: string,
+    plan: 'plus' | 'pro' | 'plus_promo' | 'pro_promo',
+    paymentMethod: PaymentMethodType = 'orange_money_mali',
+    returnUrl?: string,
+  ) {
+    const pricing: Record<string, number> = {
+      plus: 5000,
+      pro: 10000,
+      plus_promo: 1500,
+      pro_promo: 3000,
+    };
+
+    const amount = pricing[plan];
+    if (!amount) throw badRequest('INVALID_PLAN', 'Plan invalide');
+
+    return this.jemenipay.initiateCheckout({
+      userId,
+      email,
+      plan,
+      amount,
+      currency: 'XOF',
+      paymentMethod,
+      returnUrl,
+    });
   }
 
-  async history(userId: string) {
-    return this.db.select({
-      id: payment.id, provider: payment.provider, amountMinor: payment.amountMinor,
-      currency: payment.currency, plan: payment.plan, status: payment.status, createdAt: payment.createdAt,
-    }).from(payment).where(eq(payment.userId, userId)).limit(100);
-  }
+  async handleJemenipayWebhook(rawBody: Buffer | string, signature: string, timestamp?: string) {
+    const verified = await this.jemenipay.verifyWebhook(rawBody, signature, timestamp);
+    if (!verified.valid) {
+      throw unauthorized('INVALID_SIGNATURE', 'Signature webhook Jemenipay invalide');
+    }
 
-  async processVerifiedWebhook(_provider: string, _eventId: string, _payload: unknown, _signature: string) {
-    // Must not be exposed until each provider's signature format, replay protection,
-    // event idempotency, amount/currency validation and state machine are implemented.
-    throw new ServiceUnavailableException('Payment webhooks are not enabled: provider adapter is not validated');
+    if (verified.status === 'success') {
+      const plan = verified.metadata?.plan;
+      const userId = verified.metadata?.userId;
+      this.logger.log(`Paiement Jemenipay confirmé: ${verified.paymentId} pour ${userId} (Plan: ${plan})`);
+    }
+
+    return { received: true, status: verified.status };
   }
 }

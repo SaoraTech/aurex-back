@@ -14,8 +14,7 @@ const MAX_MEMORY_TOTAL_CHARS = 3000;
 /** Neutralises user-controlled text before it is embedded in the system context (it stays DATA). */
 export function sanitizeContextText(value: string, maxChars: number): string {
   return value
-    // eslint-disable-next-line no-control-regex
-    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, ' ')
+        .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, ' ')
     .replace(/<\/?\s*(donnees_|donn[ée]es_utilisateur|contexte|system|instruction)[^>]*>/gi, ' ')
     .replace(/\s*\n\s*/g, ' ')
     .replace(/\s{2,}/g, ' ')

@@ -8,8 +8,9 @@ import { ConversationsService } from '../conversations/conversations.service';
 import { DRIZZLE } from '../db/db.constants';
 import { conversation, memoryItem, message } from '../db/schema';
 import { IdentityService } from '../identity/identity.service';
+import { MathService } from '../math/math.service';
 import { startOfUtcDay, startOfUtcMonth, UsageService } from '../observability/usage.service';
-import { PlansService } from '../plans/plans.service';
+import { PlanName, PlansService } from '../plans/plans.service';
 import { WebResearchService } from '../research/web-research.service';
 
 export type WebMode = 'off' | 'on' | 'auto';
@@ -30,8 +31,8 @@ export class ChatService {
   ) {}
 
   /** Quota unit = a delivered assistant answer (a failed generation does not consume quota). UTC day/month. */
-  private async enforceLimits(userId: string, plan: 'free' | 'plus' | 'pro') {
-    const limits = this.plans.getLimits()[plan];
+  private async enforceLimits(userId: string, plan: PlanName) {
+    const limits = this.plans.getLimits(plan);
     const used = async (since: Date) => {
       const rows = await this.db.select({ value: count() }).from(message)
         .innerJoin(conversation, eq(message.conversationId, conversation.id))
@@ -116,7 +117,7 @@ export class ChatService {
       }
       throw error;
     }
-    return { conversationId: convo.id, message: assistant, provider: result.provider, model: result.model, fallbackFrom: result.fallbackFrom, webSearch: web.summary };
+    return { conversationId: convo.id, message: assistant, provider: result.provider, model: result.model, webSearch: web.summary };
   }
 }
 

@@ -1,7 +1,6 @@
 import { WebSource } from './research.types';
 
 export const WEB_TAG = 'donnees_web_non_fiables';
-// eslint-disable-next-line no-control-regex
 const CONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
 
 /** Strips anything that could close or imitate the untrusted-data fence, plus control characters. */

@@ -32,8 +32,7 @@ export function matchesFileSignature(body: Buffer, mime: string): boolean {
 
 export function sanitizeFilename(name: string | undefined, fallbackExt: string): string {
   const base = (name ?? '').split(/[\\/]/).pop() ?? '';
-  // eslint-disable-next-line no-control-regex
-  const cleaned = base.replace(/[\u0000-\u001F\u007F"<>:|?*\\]/g, '').replace(/\s+/g, ' ').trim().replace(/^\.+/, '').slice(0, 120);
+    const cleaned = base.replace(/[\u0000-\u001F\u007F"<>:|?*\\]/g, '').replace(/\s+/g, ' ').trim().replace(/^\.+/, '').slice(0, 120);
   return cleaned || `document.${fallbackExt}`;
 }
 

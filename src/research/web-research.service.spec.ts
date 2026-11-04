@@ -4,7 +4,7 @@ import { WebResearchService } from './web-research.service';
 const hit = (u: string, score = 0.5) => ({ url: u, title: `T ${u}`, content: `content ${u}`, score });
 function build(o: { search?: jest.Mock; extract?: jest.Mock; used?: number; ai?: jest.Mock; configured?: boolean } = {}) {
   const tavily: any = { isConfigured: () => o.configured ?? true, search: o.search ?? jest.fn().mockResolvedValue({ hits: [hit('https://a.test/1')], cached: false }), extract: o.extract ?? jest.fn().mockResolvedValue([]) };
-  const ai: any = { generate: o.ai ?? jest.fn().mockResolvedValue({ text: 'Réponse [S1] [S7]', provider: 'gemini', model: 'm' }) };
+  const ai: any = { generate: o.ai ?? jest.fn().mockResolvedValue({ text: 'Réponse [S1] [S7]', provider: 'groq', model: 'm' }) };
   const identity: any = { buildSystemInstruction: jest.fn(() => 'SYSTEM') };
   const plans: any = { getEffectivePlan: async () => 'free', getLimits: () => ({ free: { dailyWebSearches: 5, dailyDeepResearch: 1 } }) };
   const usage: any = { sumSince: jest.fn().mockResolvedValue(o.used ?? 0), record: jest.fn().mockResolvedValue(undefined) };
@@ -43,7 +43,7 @@ describe('WebResearchService.deepResearch', () => {
   it('plans queries, dedupes sources, caps searches and strips unknown citations', async () => {
     const ai = jest.fn()
       .mockResolvedValueOnce({ text: '{"queries":["q1","q2","q3","q4","q5","q6","q7"]}', provider: 'g', model: 'm' })
-      .mockResolvedValueOnce({ text: 'Synthèse [S1] et [S9]', provider: 'gemini', model: 'm' });
+      .mockResolvedValueOnce({ text: 'Synthèse [S1] et [S9]', provider: 'groq', model: 'm' });
     const search = jest.fn().mockResolvedValue({ hits: [hit('https://a.test/1', 0.9), hit('https://www.a.test/1/?utm_source=x', 0.4)], cached: false });
     const { svc } = build({ ai, search, used: 0 });
     const r = await svc.deepResearch('u', 'free', { question: 'Question de recherche approfondie', depth: 'standard' });

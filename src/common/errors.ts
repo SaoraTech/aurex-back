@@ -17,6 +17,7 @@ export class AppException extends HttpException {
 }
 
 export const badRequest = (code: string, message: string, details?: unknown) => new AppException(400, code, message, details);
+export const unauthorized = (code: string, message: string) => new AppException(401, code, message);
 export const notFound = (code: string, message: string) => new AppException(404, code, message);
 export const conflict = (code: string, message: string) => new AppException(409, code, message);
 export const payloadTooLarge = (code: string, message: string) => new AppException(413, code, message);

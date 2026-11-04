@@ -72,7 +72,7 @@ export class WebResearchService {
     const generated = await this.ai.generate(plan, [{ role: 'user', content: prompt }], undefined, { systemInstruction: system, temperature: 0.2 });
     const { text, cited } = stripUnknownCitations(generated.text, new Set(bundle.sources.map(s => s.id)));
     return {
-      answer: text, provider: generated.provider, model: generated.model, fallbackFrom: generated.fallbackFrom,
+      answer: text, provider: generated.provider, model: generated.model, 
       sources: bundle.sources.map(({ extract, snippet, ...s }) => ({ ...s, cited: cited.includes(s.id) })),
       queries: bundle.queries, coverage: bundle.coverage,
       notes: bundle.coverage.queriesFailed || bundle.coverage.extractionsFailed || bundle.coverage.truncated ? 'Couverture partielle : certaines recherches ou extractions ont échoué ou ont été limitées.' : undefined,

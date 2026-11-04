@@ -6,11 +6,23 @@ import { CurrentUserId, RequestId } from '../common/user.decorator';
 import { Protect } from '../security/protect.decorator';
 import { MathService } from './math.service';
 
-class ComputeDto { @IsString() @MinLength(1) @MaxLength(2000) input!: string; }
-@ApiTags('math') @ApiBearerAuth() @UseGuards(RequireUserGuard)
+class ComputeDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(2000)
+  input!: string;
+}
+
+@ApiTags('math')
+@ApiBearerAuth()
+@UseGuards(RequireUserGuard)
 @Controller('math')
 export class MathController {
   constructor(private readonly math: MathService) {}
-  @Post('compute') @Protect('math')
-  compute(@CurrentUserId() uid: string, @RequestId() rid: string, @Body() dto: ComputeDto) { return this.math.compute(dto.input, uid, rid); }
+
+  @Post('compute')
+  @Protect('math')
+  compute(@CurrentUserId() uid: string, @RequestId() rid: string, @Body() dto: ComputeDto) {
+    return this.math.compute(uid, { operation: 'custom', expression: dto.input }, rid);
+  }
 }

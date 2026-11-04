@@ -2,7 +2,7 @@
   "name": "aurex-backend-v1",
   "version": "1.0.0",
   "private": true,
-  "description": "Aurex V1 API — NestJS, Drizzle ORM, Neon PostgreSQL and Better Auth",
+  "description": "Aurex V1 API \u2014 NestJS, Drizzle ORM, Neon PostgreSQL and Better Auth",
   "engines": {
     "node": ">=22.21.0"
   },
@@ -25,7 +25,6 @@
     "@aws-sdk/client-s3": "^3.850.0",
     "@aws-sdk/s3-request-presigner": "^3.850.0",
     "@better-auth/drizzle-adapter": "^1.7.7",
-    "@google/generative-ai": "^0.24.1",
     "@nestjs/common": "^11.0.0",
     "@nestjs/config": "^4.0.0",
     "@nestjs/core": "^11.0.0",
