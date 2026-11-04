@@ -56,7 +56,7 @@ async function bootstrap() {
   const audioMax = config.get<number>('audioMaxUploadBytes') ?? 20971520;
   app.use('/api/v1/library/documents', (req: express.Request, res: express.Response, next: express.NextFunction) => (req.method === 'POST' ? express.raw({ type: () => true, limit: uploadMax })(req, res, next) : next()));
   app.use('/api/v1/audio/transcriptions', express.raw({ type: () => true, limit: audioMax }));
-  app.use(express.json({ limit: '2mb' }));
+  app.use(express.json({ limit: '2mb', verify: (req: any, _res, buf) => { req.rawBody = buf; } }));
   app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
   if (swaggerEnabled) {

@@ -8,12 +8,17 @@ export const envFactory = () => {
     logLevel: env.LOG_LEVEL,
     swaggerEnabled: env.SWAGGER_ENABLED,
     databaseUrl: env.DATABASE_URL,
+    adminEmails: (env.ADMIN_EMAILS ?? '')
+      .split(',')
+      .map(e => e.trim().toLowerCase())
+      .filter(Boolean),
     groqApiKey: env.GROQ_API_KEY,
-    groqLlmModel: env.GROQ_LLM_MODEL,
+    groqLlmModel: env.GROQ_MODEL ?? env.GROQ_LLM_MODEL,
     sagemathServiceUrl: env.SAGEMATH_SERVICE_URL,
     sagemathApiKey: env.SAGEMATH_API_KEY,
+    sagemathTimeoutMs: env.SAGEMATH_TIMEOUT_MS,
     elevenLabsApiKey: env.ELEVENLABS_API_KEY,
-    elevenLabsTtsVoiceId: env.ELEVENLABS_TTS_VOICE_ID,
+    elevenLabsTtsVoiceId: env.ELEVENLABS_VOICE_ID ?? env.ELEVENLABS_TTS_VOICE_ID,
     elevenLabsEnabled: env.ELEVENLABS_ENABLED,
     elevenLabsTtsOutputFormat: env.ELEVENLABS_TTS_OUTPUT_FORMAT,
     elevenLabsMaxTextChars: env.ELEVENLABS_MAX_TEXT_CHARS,

@@ -1,5 +1,14 @@
-import { Body, Controller, Headers, HttpCode, Post, RawBodyRequest, Req, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import {
+  Body,
+  Controller,
+  Headers,
+  HttpCode,
+  Post,
+  RawBodyRequest,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
+import { ApiBearerAuth, ApiHeader, ApiTags } from '@nestjs/swagger';
 import { IsIn, IsOptional, IsString } from 'class-validator';
 import type { Request } from 'express';
 import { RequireUserGuard } from '../auth/require-user.guard';
@@ -28,23 +37,33 @@ export class BillingController {
   @ApiBearerAuth()
   @UseGuards(RequireUserGuard)
   @Post('checkout')
-  async checkout(@CurrentUserId() userId: string, @Body() dto: CheckoutDto) {
+  async checkout(
+    @CurrentUserId() userId: string,
+    @Body() dto: CheckoutDto,
+    @Headers('idempotency-key') idempotencyKey?: string,
+  ) {
     return this.billing.checkout(
       userId,
-      'user@saora.tech',
       dto.plan,
       dto.paymentMethod ?? 'orange_money_mali',
       dto.returnUrl,
+      idempotencyKey,
     );
   }
 
   @Post('webhook/jemenipay')
   @HttpCode(200)
+  @ApiHeader({ name: 'x-jemeni-signature', required: false })
+  @ApiHeader({ name: 'x-jemenipay-signature', required: false })
   async jemenipayWebhook(
     @Req() req: RawBodyRequest<Request>,
-    @Headers('x-jemenipay-signature') signature: string,
-    @Headers('x-jemenipay-timestamp') timestamp?: string,
+    @Headers('x-jemeni-signature') jemeniSig?: string,
+    @Headers('x-jemenipay-signature') jemenipaySig?: string,
+    @Headers('auth-timestamp') authTimestamp?: string,
+    @Headers('x-jemenipay-timestamp') jemenipayTimestamp?: string,
   ) {
+    const signature = jemeniSig || jemenipaySig || '';
+    const timestamp = authTimestamp || jemenipayTimestamp;
     const raw = req.rawBody ?? Buffer.from(JSON.stringify(req.body ?? {}));
     return this.billing.handleJemenipayWebhook(raw, signature, timestamp);
   }

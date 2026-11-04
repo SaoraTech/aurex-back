@@ -7,6 +7,8 @@ import { ProviderError, providerErrorToHttp } from '../common/provider-error';
 import { IdentityService } from '../identity/identity.service';
 import { UsageService, startOfUtcDay } from '../observability/usage.service';
 import { PlanName, PlansService } from '../plans/plans.service';
+import { QuotasService } from '../quotas/quotas.service';
+import { Optional } from '@nestjs/common';
 import { renderWebBlock, normalizeUrl, shouldSearchWeb, stripUnknownCitations, WEB_TAG } from './prompt-safety';
 import { TavilyService } from './tavily.service';
 import { WebBundle, WebSearchSummary, WebSource } from './research.types';
@@ -19,6 +21,7 @@ export class WebResearchService {
   constructor(
     private readonly tavily: TavilyService, private readonly ai: AiOrchestratorService, private readonly identity: IdentityService,
     private readonly plans: PlansService, private readonly usage: UsageService, private readonly config: ConfigService,
+    @Optional() private readonly quotas?: QuotasService,
   ) {}
 
   isAvailable() { return this.tavily.isConfigured(); }
@@ -136,6 +139,12 @@ export class WebResearchService {
   }
 
   private async assertQuota(userId: string, kind: 'web_search' | 'deep_research', needed: number, limitKey: 'dailyWebSearches' | 'dailyDeepResearch') {
+    if (this.quotas) {
+      const plan = await this.plans.getEffectivePlan(userId);
+      const qRes = await this.quotas.reserveQuota(userId, kind, plan);
+      if (!qRes.allowed) throw tooManyRequests(kind === 'web_search' ? 'WEB_SEARCH_QUOTA_EXCEEDED' : 'DEEP_RESEARCH_QUOTA_EXCEEDED', 'Quota quotidien de recherche atteint.');
+      return qRes.operationId;
+    }
     if (!this.tavily.isConfigured()) throw new AppException(503, 'WEB_SEARCH_NOT_CONFIGURED', "La recherche web n'est pas configurée sur ce serveur.");
     const plan = await this.plans.getEffectivePlan(userId);
     const used = await this.usage.sumSince(userId, kind, startOfUtcDay());

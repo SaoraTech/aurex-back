@@ -40,7 +40,11 @@ export class QuotasService {
     const raw = this.config.get<string>('quotaPoliciesJson');
     let overrides: Partial<Record<PlanName, Record<string, Partial<QuotaPolicy>>>> = {};
     if (raw) {
-      try { overrides = JSON.parse(raw); } catch { /* ignore invalid JSON */ }
+      try {
+        overrides = JSON.parse(raw);
+      } catch {
+        /* ignore invalid JSON */
+      }
     }
 
     const defaultForPlan = DEFAULT_QUOTA_POLICIES[plan] ?? DEFAULT_QUOTA_POLICIES.free;
@@ -86,16 +90,24 @@ export class QuotasService {
         violationCount: block.violationCount,
       };
     }
-
     return null;
   }
 
   async recordAdaptiveViolation(userId: string, feature: string, policy: QuotaPolicy, now = new Date()) {
-    const existing = await this.db.select().from(featureBlock)
+    if (!policy.adaptiveAdjustment) {
+      const blockedUntil = new Date(now.getTime() + policy.baseBlockSeconds * 1000);
+      return {
+        blockedUntil: blockedUntil.toISOString(),
+        retryAfterSeconds: policy.baseBlockSeconds,
+        violationCount: 1,
+      };
+    }
+
+    const rows = await this.db.select().from(featureBlock)
       .where(and(eq(featureBlock.userId, userId), eq(featureBlock.feature, feature)))
       .limit(1);
 
-    const row = existing[0];
+    const row = rows[0];
     let violationCount = 1;
 
     if (row) {
@@ -137,7 +149,7 @@ export class QuotasService {
   }
 
   /**
-   * Atomically reserves 1 unit of quota for (userId, feature).
+   * Atomically reserves `units` of quota for (userId, feature).
    * Concurrency-safe: utilizes conditional PostgreSQL atomic upsert.
    */
   async reserveQuota(
@@ -145,6 +157,7 @@ export class QuotasService {
     feature: string,
     plan: PlanName,
     operationId: string = newId(),
+    units = 1,
     now = new Date(),
   ): Promise<ReservationResult> {
     const policy = this.getPolicy(plan, feature);
@@ -185,20 +198,19 @@ export class QuotasService {
       };
     }
 
-    // 2. Atomic reservation query: only increments used_count if used_count + 1 <= policy.limit
+    // 2. Atomic reservation query: only increments used_count if used_count + units <= policy.limit
     const upsertRes = await this.db.execute(sql`
       INSERT INTO feature_quota_usage (id, user_id, feature, window_start, window_end, used_count, created_at, updated_at)
-      VALUES (${newId()}, ${userId}, ${feature}, ${windowStart}, ${windowEnd}, 1, ${now}, ${now})
+      VALUES (${newId()}, ${userId}, ${feature}, ${windowStart}, ${windowEnd}, ${units}, ${now}, ${now})
       ON CONFLICT (user_id, feature, window_start)
       DO UPDATE SET
-        used_count = feature_quota_usage.used_count + 1,
+        used_count = feature_quota_usage.used_count + ${units},
         updated_at = ${now}
-      WHERE feature_quota_usage.used_count + 1 <= ${policy.limit}
+      WHERE feature_quota_usage.used_count + ${units} <= ${policy.limit}
       RETURNING used_count;
     `);
 
     const row = upsertRes.rows?.[0] as { used_count?: number } | undefined;
-
     if (row && typeof row.used_count === 'number') {
       const used = row.used_count;
       // Record reservation in ledger for strict idempotency and tracking
@@ -206,6 +218,7 @@ export class QuotasService {
         id: operationId,
         userId,
         feature,
+        units,
         status: 'reserved',
         createdAt: now,
         updatedAt: now,
@@ -258,25 +271,34 @@ export class QuotasService {
   }
 
   /**
-   * Idempotent compensation: refunds 1 reserved unit if operation failed or aborted.
+   * Idempotent compensation: refunds reserved units if operation failed or aborted.
    * Can never refund twice because of strict WHERE status = 'reserved'.
    */
   async compensateQuota(operationId: string): Promise<boolean> {
     const updated = await this.db.update(featureQuotaLedger)
       .set({ status: 'refunded', updatedAt: new Date() })
       .where(and(eq(featureQuotaLedger.id, operationId), eq(featureQuotaLedger.status, 'reserved')))
-      .returning({ userId: featureQuotaLedger.userId, feature: featureQuotaLedger.feature, createdAt: featureQuotaLedger.createdAt });
+      .returning({
+        userId: featureQuotaLedger.userId,
+        feature: featureQuotaLedger.feature,
+        units: featureQuotaLedger.units,
+        createdAt: featureQuotaLedger.createdAt,
+      });
 
     const entry = updated[0];
     if (!entry) {
       return false; // already consumed, refunded, or not found
     }
 
-    const { windowStart } = this.getWindowBounds('day', new Date(entry.createdAt));
+    const units = entry.units ?? 1;
+    const defaultForPlan = DEFAULT_QUOTA_POLICIES.free;
+    const policy = defaultForPlan[entry.feature];
+    const windowType = policy?.window ?? 'day';
+    const { windowStart } = this.getWindowBounds(windowType, new Date(entry.createdAt));
 
     await this.db.execute(sql`
       UPDATE feature_quota_usage
-      SET used_count = GREATEST(0, used_count - 1), updated_at = NOW()
+      SET used_count = GREATEST(0, used_count - ${units}), updated_at = NOW()
       WHERE user_id = ${entry.userId} AND feature = ${entry.feature} AND window_start = ${windowStart};
     `);
 
@@ -293,7 +315,6 @@ export class QuotasService {
     const resetAt = windowEnd.toISOString();
 
     const activeBlock = await this.getActiveBlock(userId, feature, now);
-
     const usageRows = await this.db.select().from(featureQuotaUsage)
       .where(and(
         eq(featureQuotaUsage.userId, userId),
@@ -326,8 +347,9 @@ export class QuotasService {
     plan: PlanName,
     fn: (operationId: string) => Promise<T>,
     operationId: string = newId(),
+    units = 1,
   ): Promise<T> {
-    const res = await this.reserveQuota(userId, feature, plan, operationId);
+    const res = await this.reserveQuota(userId, feature, plan, operationId, units);
     if (!res.allowed) {
       throw new AppException(
         429,
