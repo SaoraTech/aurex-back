@@ -1,6 +1,16 @@
 import { z } from 'zod';
 
 const bool = z.enum(['true', 'false']).default('false');
+
+function isIpOrCidr(value: string): boolean {
+  // IPv4 or IPv4/CIDR
+  const ipv4 = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}(\/(3[0-2]|[12]?\d))?$/;
+  if (ipv4.test(value)) return true;
+  // IPv6 (simplified) or IPv6/CIDR
+  const ipv6 = /^[0-9a-fA-F:]+(\/(12[0-8]|1[01]\d|\d{1,2}))?$/;
+  if (value.includes(':') && ipv6.test(value)) return true;
+  return false;
+}
 const optStr = z.string().optional();
 
 const DEFAULT_LIMITS =
@@ -71,6 +81,11 @@ export const EnvSchema = z
     // Plan limits JSON
     PLAN_LIMITS_JSON: z.string().default(DEFAULT_LIMITS),
     PLAN_PRICES_JSON: z.string().default('{"free":0,"plus":5000,"pro":10000,"plus_promo":1500,"pro_promo":3000}'),
+
+    // CORS & trusted origins/proxies
+    TRUSTED_ORIGINS: z.string().optional().default(''),
+    CORS_ORIGIN: z.string().optional().default(''),
+    TRUSTED_PROXIES: z.string().optional().default(''),
   })
   .superRefine((v, ctx) => {
     const need = (cond: boolean, path: string, message: string) => {
@@ -108,6 +123,47 @@ export const EnvSchema = z
         'ARCJET_MODE',
         'Arcjet must be active in production (set ARCJET_KEY) or explicitly acknowledged with ARCJET_ALLOW_DISABLED_IN_PRODUCTION=true',
       );
+    }
+
+    // CORS safety: never allow wildcard origin.
+    const origins = (v.CORS_ORIGIN ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    for (const o of origins) {
+      if (o === '*') {
+        ctx.addIssue({ code: 'custom', path: ['CORS_ORIGIN'], message: 'Wildcard CORS origin is not allowed' });
+      } else {
+        try {
+          new URL(o);
+        } catch {
+          ctx.addIssue({ code: 'custom', path: ['CORS_ORIGIN'], message: `Invalid CORS origin: ${o}` });
+        }
+      }
+    }
+
+    // Trusted origins (Better Auth) validation.
+    const trustedOrigins = (v.TRUSTED_ORIGINS ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    for (const o of trustedOrigins) {
+      try {
+        new URL(o);
+      } catch {
+        ctx.addIssue({ code: 'custom', path: ['TRUSTED_ORIGINS'], message: `Invalid trusted origin: ${o}` });
+      }
+    }
+
+    // Trusted proxies must be valid IP addresses or CIDR ranges.
+    const proxies = (v.TRUSTED_PROXIES ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    for (const p of proxies) {
+      if (!isIpOrCidr(p)) {
+        ctx.addIssue({ code: 'custom', path: ['TRUSTED_PROXIES'], message: `Invalid trusted proxy: ${p}` });
+      }
     }
   });
 

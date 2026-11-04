@@ -31,22 +31,46 @@ export class BillingService {
       throw badRequest('INVALID_PLAN', 'Plan payant invalide ou gratuit.');
     }
 
-    // 1. Fetch authentic user email from database
-    let email = 'user@saora.tech';
-    if (this.db) {
-      const [usr] = await this.db
-        .select({ email: user.email })
-        .from(user)
-        .where(eq(user.id, userId))
+    // 1. Idempotency: if the client supplied a key and a transaction already exists, return it.
+    if (idempotencyKey && this.db) {
+      const [existing] = await this.db
+        .select()
+        .from(payment)
+        .where(and(eq(payment.userId, userId), eq(payment.idempotencyKey, idempotencyKey)))
         .limit(1);
 
-      if (!usr?.email) {
-        throw badRequest('USER_NOT_FOUND', 'Utilisateur introuvable pour ce paiement.');
+      if (existing) {
+        if (existing.status === 'failed' || existing.status === 'cancelled' || existing.status === 'refunded') {
+          // Allow a fresh attempt for a definitively failed/cancelled transaction by continuing.
+        } else {
+          this.logger.log(`Returning existing payment ${existing.id} for idempotency key ${idempotencyKey}`);
+          return {
+            paymentId: existing.providerReference ?? existing.id,
+            checkoutUrl: existing.checkoutUrl,
+            provider: 'jemenipay',
+            status: existing.status === 'succeeded' ? 'succeeded' : 'pending',
+          };
+        }
       }
-      email = usr.email;
     }
 
-    // 2. Verify provider configuration
+    // 2. Fetch authentic user email from database
+    if (!this.db) {
+      throw serviceUnavailable('DATABASE_UNAVAILABLE', 'Base de données indisponible pour le paiement.');
+    }
+
+    const [usr] = await this.db
+      .select({ email: user.email })
+      .from(user)
+      .where(eq(user.id, userId))
+      .limit(1);
+
+    if (!usr?.email) {
+      throw badRequest('USER_NOT_FOUND', 'Utilisateur introuvable pour ce paiement.');
+    }
+    const email = usr.email;
+
+    // 3. Verify provider configuration
     if (!this.jemenipay.isConfigured()) {
       throw serviceUnavailable(
         'PAYMENT_SERVICE_NOT_CONFIGURED',
@@ -54,26 +78,24 @@ export class BillingService {
       );
     }
 
-    // 3. Create local payment order record before external call
+    // 4. Create local payment order record before external call
     const localPaymentId = newId();
     const finalIdempotencyKey = idempotencyKey ?? `idem_${localPaymentId}`;
 
-    if (this.db) {
-      await this.db.insert(payment).values({
-        id: localPaymentId,
-        userId,
-        provider: 'jemenipay',
-        idempotencyKey: finalIdempotencyKey,
-        amountMinor: amount,
-        currency: 'XOF',
-        plan,
-        status: 'pending',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
-    }
+    await this.db.insert(payment).values({
+      id: localPaymentId,
+      userId,
+      provider: 'jemenipay',
+      idempotencyKey: finalIdempotencyKey,
+      amountMinor: amount,
+      currency: 'XOF',
+      plan,
+      status: 'pending',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
 
-    // 4. Perform real checkout initiation via Jemenipay Provider
+    // 5. Perform real checkout initiation via Jemenipay Provider
     try {
       const checkoutRes = await this.jemenipay.initiateCheckout({
         userId,
@@ -85,18 +107,20 @@ export class BillingService {
         returnUrl,
       });
 
-      // 5. Update local record with provider reference and checkout URL
-      if (this.db) {
-        await this.db
-          .update(payment)
-          .set({
-            providerReference: checkoutRes.paymentId,
-            checkoutUrl: checkoutRes.checkoutUrl,
-            status: 'processing',
-            updatedAt: new Date(),
-          })
-          .where(eq(payment.id, localPaymentId));
+      if (!checkoutRes?.paymentId || !checkoutRes?.checkoutUrl) {
+        throw new Error('Réponse Jɛmɛnipay incomplète (paymentId ou checkoutUrl manquant).');
       }
+
+      // 6. Update local record with provider reference and checkout URL
+      await this.db
+        .update(payment)
+        .set({
+          providerReference: checkoutRes.paymentId,
+          checkoutUrl: checkoutRes.checkoutUrl,
+          status: 'processing',
+          updatedAt: new Date(),
+        })
+        .where(eq(payment.id, localPaymentId));
 
       return {
         paymentId: checkoutRes.paymentId,
@@ -106,16 +130,14 @@ export class BillingService {
       };
     } catch (err: any) {
       this.logger.error(`Jemenipay checkout failed for user ${userId}: ${err.message}`);
-      if (this.db) {
-        await this.db
-          .update(payment)
-          .set({
-            status: 'failed',
-            rawStatus: err.message,
-            updatedAt: new Date(),
-          })
-          .where(eq(payment.id, localPaymentId));
-      }
+      await this.db
+        .update(payment)
+        .set({
+          status: 'failed',
+          rawStatus: err.message,
+          updatedAt: new Date(),
+        })
+        .where(eq(payment.id, localPaymentId));
       throw badGateway('PAYMENT_INITIATION_FAILED', `Échec d’initialisation du paiement : ${err.message}`);
     }
   }
@@ -153,9 +175,19 @@ export class BillingService {
       return { received: true, status: verified.status, warning: 'LOCAL_TRANSACTION_NOT_FOUND' };
     }
 
-    // Strict idempotency: if already completed, acknowledge HTTP 200 without duplicate action
+    // Provider reference must match the local record when it was stored.
+    if (local.providerReference && targetRef && local.providerReference !== targetRef && local.id !== targetRef) {
+      throw badRequest('PAYMENT_REFERENCE_MISMATCH', 'Référence de paiement inconnue.');
+    }
+
+    // Strict idempotency: if already completed, acknowledge without duplicate action
     if (local.status === 'succeeded') {
       return { received: true, status: 'succeeded', alreadyProcessed: true };
+    }
+
+    // Invalid transitions
+    if (local.status === 'failed' || local.status === 'cancelled' || local.status === 'refunded') {
+      throw badRequest('INVALID_PAYMENT_TRANSITION', 'Transition de paiement invalide.');
     }
 
     // Verify amount and currency
@@ -166,16 +198,38 @@ export class BillingService {
       throw badRequest('PAYMENT_MISMATCH', 'Montant ou devise incohérente avec la commande initiale.');
     }
 
+    // Verify plan and user from local data, never trust webhook alone.
+    const webhookPlan = verified.metadata?.plan;
+    if (webhookPlan && webhookPlan !== local.plan) {
+      throw badRequest('PLAN_MISMATCH', 'Le plan du webhook ne correspond pas à la commande locale.');
+    }
+    const webhookUser = verified.metadata?.userId ?? verified.metadata?.user_id;
+    if (webhookUser && webhookUser !== local.userId) {
+      throw badRequest('USER_MISMATCH', 'L’utilisateur du webhook ne correspond pas à la commande locale.');
+    }
+
+    const plan = local.plan as PlanName;
+
     if (verified.status === 'success') {
-      const plan = (verified.metadata?.plan ?? local.plan) as PlanName;
-      const isPromo = plan.endsWith('_promo');
-      const durationDays = isPromo ? 7 : 30; // 7 days for promotions, 30 days for standard monthly subscriptions
+      const isPromo = String(plan).endsWith('_promo');
+      const durationDays = isPromo ? 7 : 30;
 
       const now = new Date();
       const currentPeriodStart = now;
       const currentPeriodEnd = new Date(now.getTime() + durationDays * 86400 * 1000);
 
       await this.db.transaction(async (tx: any) => {
+        // Re-check idempotency inside the transaction (concurrent webhooks) when supported.
+        if (typeof tx.select === 'function') {
+          const [fresh] = await tx.select().from(payment).where(eq(payment.id, local.id)).limit(1);
+          if (fresh?.status === 'succeeded') {
+            return;
+          }
+          if (fresh && (fresh.status === 'failed' || fresh.status === 'cancelled' || fresh.status === 'refunded')) {
+            throw badRequest('INVALID_PAYMENT_TRANSITION', 'Transition de paiement invalide.');
+          }
+        }
+
         // 1. Mark payment as succeeded
         await tx
           .update(payment)

@@ -246,7 +246,7 @@ export class SageMathEngine implements MathEngine {
         };
       }
 
-      // Explicit computation failure reported by SageMath
+      // Explicit statuses reported by the remote engine must be honoured.
       if (data.status === 'failed' || data.error) {
         return {
           engine: 'sagemath',
@@ -267,11 +267,38 @@ export class SageMathEngine implements MathEngine {
         };
       }
 
-      // A verified calculation MUST have an actual result (plainText or latex)
-      const plainText = data.plainText ?? data.result;
+      // A result is considered verified ONLY when the remote engine explicitly
+      // confirms it with status === 'verified'. Any other/missing status is rejected.
+      if (data.status !== 'verified') {
+        return {
+          engine: 'sagemath',
+          status: 'failed',
+          errorCode: 'COMPUTATION_ERROR',
+          computationTimeMs,
+          error: 'Le service SageMath n’a pas confirmé explicitement le calcul (statut manquant ou inconnu).',
+        };
+      }
+
+      // Operation correspondence: if the engine echoes an operation, it must match.
+      if (typeof data.operation === 'string' && data.operation !== input.operation) {
+        return {
+          engine: 'sagemath',
+          status: 'failed',
+          errorCode: 'COMPUTATION_ERROR',
+          computationTimeMs,
+          error: 'La réponse SageMath ne correspond pas à l’opération demandée.',
+        };
+      }
+
+      // A verified calculation MUST have an actual, non-empty result.
+      const rawPlain = data.plainText ?? data.result ?? data.plain_text;
       const latex = data.latex;
 
-      if (!plainText && !latex) {
+      const plainText =
+        typeof rawPlain === 'string' ? rawPlain.trim() : rawPlain != null ? String(rawPlain).trim() : '';
+      const latexStr = typeof latex === 'string' ? latex.trim() : '';
+
+      if (!plainText && !latexStr) {
         return {
           engine: 'sagemath',
           status: 'failed',
@@ -281,16 +308,27 @@ export class SageMathEngine implements MathEngine {
         };
       }
 
-      // Clean steps if array of strings
+      // Size guards.
+      if (plainText.length > 100000 || latexStr.length > 100000) {
+        return {
+          engine: 'sagemath',
+          status: 'failed',
+          errorCode: 'COMPUTATION_ERROR',
+          computationTimeMs,
+          error: 'Résultat SageMath trop volumineux.',
+        };
+      }
+
+      // Clean steps if array of strings (bounded).
       const steps = Array.isArray(data.steps)
-        ? data.steps.filter((s: unknown) => typeof s === 'string')
+        ? data.steps.filter((s: unknown) => typeof s === 'string').slice(0, 100)
         : undefined;
 
       return {
         engine: 'sagemath',
         status: 'verified',
-        latex: typeof latex === 'string' ? latex : undefined,
-        plainText: typeof plainText === 'string' ? plainText : String(plainText),
+        latex: latexStr || undefined,
+        plainText: plainText || latexStr,
         steps,
         computationTimeMs,
       };

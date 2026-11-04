@@ -12,6 +12,15 @@ export const envFactory = () => {
       .split(',')
       .map(e => e.trim().toLowerCase())
       .filter(Boolean),
+    trustedOrigins: (env.TRUSTED_ORIGINS ?? '')
+      .split(',')
+      .map(e => e.trim())
+      .filter(Boolean),
+    corsOrigin: env.CORS_ORIGIN ?? '',
+    trustedProxies: (env.TRUSTED_PROXIES ?? '')
+      .split(',')
+      .map(e => e.trim())
+      .filter(Boolean),
     groqApiKey: env.GROQ_API_KEY,
     groqLlmModel: env.GROQ_MODEL ?? env.GROQ_LLM_MODEL,
     sagemathServiceUrl: env.SAGEMATH_SERVICE_URL,

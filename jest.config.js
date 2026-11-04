@@ -7,5 +7,7 @@ module.exports = {
     '^better-auth/node$': '<rootDir>/tests/mocks/better-auth-node.ts',
   },
   testEnvironment: 'node',
+  testPathIgnorePatterns: ['/node_modules/', '/.base/'],
+  modulePathIgnorePatterns: ['<rootDir>/.base'],
   collectCoverageFrom: ['src/**/*.ts'],
 };

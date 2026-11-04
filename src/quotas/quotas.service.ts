@@ -10,6 +10,7 @@ import { DEFAULT_QUOTA_POLICIES } from './quota-policies';
 import { QuotaPolicy, QuotaStatus, ReservationResult } from './quota.types';
 
 const BURST_WINDOW_MS = 600_000; // 10 minutes
+const RESERVATION_TTL_MS = 10 * 60 * 1000; // reservations expire after 10 minutes if not committed
 
 export function startOfUtcDay(d = new Date()): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
@@ -35,6 +36,14 @@ export class QuotasService {
     @Inject(DRIZZLE) private readonly db: any,
     private readonly config: ConfigService,
   ) {}
+
+  private async withTransaction<T>(fn: (tx: any) => Promise<T>): Promise<T> {
+    if (typeof this.db?.transaction === 'function') {
+      return this.db.transaction(fn);
+    }
+    // Fallback for environments without transaction support (e.g. unit-test mocks).
+    return fn(this.db);
+  }
 
   getPolicy(plan: PlanName, feature: string): QuotaPolicy {
     const raw = this.config.get<string>('quotaPoliciesJson');
@@ -149,9 +158,28 @@ export class QuotasService {
   }
 
   /**
-   * Atomically reserves `units` of quota for (userId, feature).
-   * Concurrency-safe: utilizes conditional PostgreSQL atomic upsert.
+   * Resolve the quota window type for a feature by scanning the default policies
+   * (the window is consistent across all plans for a given feature).
    */
+  private windowTypeForFeature(feature: string): 'day' | 'month' {
+    for (const planPolicies of Object.values(DEFAULT_QUOTA_POLICIES)) {
+      const p = (planPolicies as any)[feature];
+      if (p?.window === 'month' || p?.window === 'day') return p.window;
+    }
+    return 'day';
+  }
+
+  private async fetchUsage(tx: any, userId: string, feature: string, windowStart: Date) {
+    const rows = await tx.select().from(featureQuotaUsage)
+      .where(and(
+        eq(featureQuotaUsage.userId, userId),
+        eq(featureQuotaUsage.feature, feature),
+        eq(featureQuotaUsage.windowStart, windowStart),
+      ))
+      .limit(1);
+    return rows?.[0];
+  }
+
   async reserveQuota(
     userId: string,
     feature: string,
@@ -181,7 +209,6 @@ export class QuotasService {
     // 1. Check if a temporary block is active
     const activeBlock = await this.getActiveBlock(userId, feature, now);
     if (activeBlock) {
-      // User is continuing to query while blocked: increment adaptive violation
       const updatedBlock = await this.recordAdaptiveViolation(userId, feature, policy, now);
       return {
         allowed: false,
@@ -198,116 +225,220 @@ export class QuotasService {
       };
     }
 
-    // 2. Atomic reservation query: only increments used_count if used_count + units <= policy.limit
-    const upsertRes = await this.db.execute(sql`
-      INSERT INTO feature_quota_usage (id, user_id, feature, window_start, window_end, used_count, created_at, updated_at)
-      VALUES (${newId()}, ${userId}, ${feature}, ${windowStart}, ${windowEnd}, ${units}, ${now}, ${now})
-      ON CONFLICT (user_id, feature, window_start)
-      DO UPDATE SET
-        used_count = feature_quota_usage.used_count + ${units},
-        updated_at = ${now}
-      WHERE feature_quota_usage.used_count + ${units} <= ${policy.limit}
-      RETURNING used_count;
-    `);
+    return this.withTransaction(async (tx) => {
+      // 2. Idempotency: if this operationId was already reserved/consumed, do not re-increment.
+      const existingRows = await tx.select().from(featureQuotaLedger)
+        .where(eq(featureQuotaLedger.id, operationId))
+        .limit(1);
+      const existing = existingRows?.[0];
 
-    const row = upsertRes.rows?.[0] as { used_count?: number } | undefined;
-    if (row && typeof row.used_count === 'number') {
-      const used = row.used_count;
-      // Record reservation in ledger for strict idempotency and tracking
-      await this.db.insert(featureQuotaLedger).values({
-        id: operationId,
-        userId,
-        feature,
-        units,
-        status: 'reserved',
-        createdAt: now,
-        updatedAt: now,
-      });
+      if (existing) {
+        if (existing.status === 'reserved' || existing.status === 'consumed') {
+          const usageRow = await this.fetchUsage(tx, existing.userId ?? userId, existing.feature ?? feature, windowStart);
+          const used = usageRow?.usedCount ?? 0;
+          return {
+            allowed: true,
+            operationId,
+            feature,
+            limit: policy.limit,
+            used,
+            remaining: Math.max(0, policy.limit - used),
+            resetAt,
+          };
+        }
+        // refunded / expired / unknown: reservation no longer active
+        return {
+          allowed: false,
+          operationId,
+          feature,
+          limit: policy.limit,
+          used: policy.limit,
+          remaining: 0,
+          resetAt,
+          errorCode: 'FEATURE_LIMIT_REACHED',
+          errorMessage: 'Cette réservation a déjà été remboursée ou a expiré.',
+        };
+      }
+
+      // 3. Insert ledger entry first (primary key guarantees uniqueness of the operation).
+      try {
+        await tx.insert(featureQuotaLedger).values({
+          id: operationId,
+          userId,
+          feature,
+          units,
+          status: 'reserved',
+          createdAt: now,
+          updatedAt: now,
+        });
+      } catch (err) {
+        // Race: another transaction inserted the same operationId. Re-read and treat as idempotent.
+        const raceRows = await tx.select().from(featureQuotaLedger)
+          .where(eq(featureQuotaLedger.id, operationId))
+          .limit(1);
+        const race = raceRows?.[0];
+        if (race && (race.status === 'reserved' || race.status === 'consumed')) {
+          const usageRow = await this.fetchUsage(tx, userId, feature, windowStart);
+          const used = usageRow?.usedCount ?? 0;
+          return {
+            allowed: true,
+            operationId,
+            feature,
+            limit: policy.limit,
+            used,
+            remaining: Math.max(0, policy.limit - used),
+            resetAt,
+          };
+        }
+        throw err;
+      }
+
+      // 4. Atomic conditional upsert of the usage counter.
+      const upsertRes = await tx.execute(sql`
+        INSERT INTO feature_quota_usage (id, user_id, feature, window_start, window_end, used_count, created_at, updated_at)
+        VALUES (${newId()}, ${userId}, ${feature}, ${windowStart}, ${windowEnd}, ${units}, ${now}, ${now})
+        ON CONFLICT (user_id, feature, window_start)
+        DO UPDATE SET
+          used_count = feature_quota_usage.used_count + ${units},
+          updated_at = ${now}
+        WHERE feature_quota_usage.used_count + ${units} <= ${policy.limit}
+        RETURNING used_count;
+      `);
+
+      const row = upsertRes.rows?.[0] as { used_count?: number } | undefined;
+      if (row && typeof row.used_count === 'number') {
+        const used = row.used_count;
+        return {
+          allowed: true,
+          operationId,
+          feature,
+          limit: policy.limit,
+          used,
+          remaining: Math.max(0, policy.limit - used),
+          resetAt,
+        };
+      }
+
+      // 5. Quota exhausted: roll back the ledger reservation (mark refunded) so the slot is not held.
+      await tx.update(featureQuotaLedger)
+        .set({ status: 'refunded', updatedAt: new Date() })
+        .where(and(eq(featureQuotaLedger.id, operationId), eq(featureQuotaLedger.status, 'reserved')));
+
+      const usageRows = await tx.select().from(featureQuotaUsage)
+        .where(and(
+          eq(featureQuotaUsage.userId, userId),
+          eq(featureQuotaUsage.feature, feature),
+          eq(featureQuotaUsage.windowStart, windowStart),
+        ))
+        .limit(1);
+
+      const currentUsed = usageRows?.[0]?.usedCount ?? policy.limit;
+      const retryAfterSeconds = Math.max(1, Math.ceil((windowEnd.getTime() - now.getTime()) / 1000));
 
       return {
-        allowed: true,
+        allowed: false,
         operationId,
         feature,
         limit: policy.limit,
-        used,
-        remaining: Math.max(0, policy.limit - used),
+        used: currentUsed,
+        remaining: 0,
         resetAt,
+        retryAfterSeconds,
+        errorCode: 'FEATURE_LIMIT_REACHED',
+        errorMessage: 'La limite d’utilisation de cette fonctionnalité est atteinte pour cette période.',
       };
-    }
-
-    // 3. Quota limit reached (no rows updated)
-    const usageRows = await this.db.select().from(featureQuotaUsage)
-      .where(and(
-        eq(featureQuotaUsage.userId, userId),
-        eq(featureQuotaUsage.feature, feature),
-        eq(featureQuotaUsage.windowStart, windowStart),
-      ))
-      .limit(1);
-
-    const currentUsed = usageRows[0]?.usedCount ?? policy.limit;
-    const retryAfterSeconds = Math.max(1, Math.ceil((windowEnd.getTime() - now.getTime()) / 1000));
-
-    return {
-      allowed: false,
-      operationId,
-      feature,
-      limit: policy.limit,
-      used: currentUsed,
-      remaining: 0,
-      resetAt,
-      retryAfterSeconds,
-      errorCode: 'FEATURE_LIMIT_REACHED',
-      errorMessage: 'La limite d’utilisation de cette fonctionnalité est atteinte pour cette période.',
-    };
+    });
   }
 
-  /**
-   * Confirms consumption of a previously reserved quota slot.
-   */
   async commitQuota(operationId: string): Promise<void> {
     await this.db.update(featureQuotaLedger)
       .set({ status: 'consumed', updatedAt: new Date() })
-      .where(eq(featureQuotaLedger.id, operationId));
+      .where(and(eq(featureQuotaLedger.id, operationId), eq(featureQuotaLedger.status, 'reserved')));
   }
 
-  /**
-   * Idempotent compensation: refunds reserved units if operation failed or aborted.
-   * Can never refund twice because of strict WHERE status = 'reserved'.
-   */
   async compensateQuota(operationId: string): Promise<boolean> {
-    const updated = await this.db.update(featureQuotaLedger)
-      .set({ status: 'refunded', updatedAt: new Date() })
-      .where(and(eq(featureQuotaLedger.id, operationId), eq(featureQuotaLedger.status, 'reserved')))
-      .returning({
-        userId: featureQuotaLedger.userId,
-        feature: featureQuotaLedger.feature,
-        units: featureQuotaLedger.units,
-        createdAt: featureQuotaLedger.createdAt,
-      });
+    return this.withTransaction(async (tx) => {
+      const updated = await tx.update(featureQuotaLedger)
+        .set({ status: 'refunded', updatedAt: new Date() })
+        .where(and(eq(featureQuotaLedger.id, operationId), eq(featureQuotaLedger.status, 'reserved')))
+        .returning({
+          userId: featureQuotaLedger.userId,
+          feature: featureQuotaLedger.feature,
+          units: featureQuotaLedger.units,
+          createdAt: featureQuotaLedger.createdAt,
+        });
 
-    const entry = updated[0];
-    if (!entry) {
-      return false; // already consumed, refunded, or not found
-    }
+      const entry = updated?.[0];
+      if (!entry) {
+        return false; // already consumed, refunded, expired, or not found
+      }
 
-    const units = entry.units ?? 1;
-    const defaultForPlan = DEFAULT_QUOTA_POLICIES.free;
-    const policy = defaultForPlan[entry.feature];
-    const windowType = policy?.window ?? 'day';
-    const { windowStart } = this.getWindowBounds(windowType, new Date(entry.createdAt));
+      const units = entry.units ?? 1;
+      const windowType = this.windowTypeForFeature(entry.feature);
+      const { windowStart } = this.getWindowBounds(windowType, new Date(entry.createdAt));
 
-    await this.db.execute(sql`
-      UPDATE feature_quota_usage
-      SET used_count = GREATEST(0, used_count - ${units}), updated_at = NOW()
-      WHERE user_id = ${entry.userId} AND feature = ${entry.feature} AND window_start = ${windowStart};
-    `);
+      await tx.execute(sql`
+        UPDATE feature_quota_usage
+        SET used_count = GREATEST(0, used_count - ${units}), updated_at = NOW()
+        WHERE user_id = ${entry.userId} AND feature = ${entry.feature} AND window_start = ${windowStart};
+      `);
 
-    return true;
+      return true;
+    });
   }
 
   /**
-   * Returns current quota and block status for a given user & feature.
+   * Marks a still-reserved operation as expired and refunds it exactly once.
    */
+  async expireQuota(operationId: string): Promise<boolean> {
+    return this.withTransaction(async (tx) => {
+      const updated = await tx.update(featureQuotaLedger)
+        .set({ status: 'expired', updatedAt: new Date() })
+        .where(and(eq(featureQuotaLedger.id, operationId), eq(featureQuotaLedger.status, 'reserved')))
+        .returning({
+          userId: featureQuotaLedger.userId,
+          feature: featureQuotaLedger.feature,
+          units: featureQuotaLedger.units,
+          createdAt: featureQuotaLedger.createdAt,
+        });
+
+      const entry = updated?.[0];
+      if (!entry) {
+        return false;
+      }
+
+      const units = entry.units ?? 1;
+      const windowType = this.windowTypeForFeature(entry.feature);
+      const { windowStart } = this.getWindowBounds(windowType, new Date(entry.createdAt));
+
+      await tx.execute(sql`
+        UPDATE feature_quota_usage
+        SET used_count = GREATEST(0, used_count - ${units}), updated_at = NOW()
+        WHERE user_id = ${entry.userId} AND feature = ${entry.feature} AND window_start = ${windowStart};
+      `);
+
+      return true;
+    });
+  }
+
+  /**
+   * Expires reservations older than the TTL without double refund.
+   */
+  async expireStaleReservations(now = new Date(), ttlMs = RESERVATION_TTL_MS): Promise<number> {
+    const cutoff = new Date(now.getTime() - ttlMs);
+    const rows = await this.db.select().from(featureQuotaLedger)
+      .where(eq(featureQuotaLedger.status, 'reserved'));
+
+    let count = 0;
+    for (const r of rows ?? []) {
+      if (new Date(r.createdAt).getTime() <= cutoff.getTime()) {
+        const ok = await this.expireQuota(r.id);
+        if (ok) count++;
+      }
+    }
+    return count;
+  }
+
   async getStatus(userId: string, plan: PlanName, feature: string): Promise<QuotaStatus> {
     const policy = this.getPolicy(plan, feature);
     const now = new Date();
@@ -323,7 +454,7 @@ export class QuotasService {
       ))
       .limit(1);
 
-    const used = usageRows[0]?.usedCount ?? 0;
+    const used = usageRows?.[0]?.usedCount ?? 0;
     const remaining = Math.max(0, policy.limit - used);
 
     return {
@@ -338,9 +469,6 @@ export class QuotasService {
     };
   }
 
-  /**
-   * High-level helper: wraps an operation with atomic quota check, automatic commit, and compensation on error.
-   */
   async runWithQuota<T>(
     userId: string,
     feature: string,
@@ -373,7 +501,6 @@ export class QuotasService {
       await this.commitQuota(res.operationId);
       return outcome;
     } catch (err) {
-      // Automatically compensate/refund the reserved slot
       await this.compensateQuota(res.operationId);
       throw err;
     }

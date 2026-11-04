@@ -96,8 +96,12 @@ export class JemenipayProvider implements PaymentProvider {
       }
 
       const data = await response.json();
-      const checkoutUrl = data.checkout_url ?? data.checkoutUrl ?? data.url ?? `${baseUrl}/checkout/${paymentReference}`;
-      const remotePaymentId = data.payment_id ?? data.paymentId ?? data.reference ?? paymentReference;
+      const checkoutUrl = data.checkout_url ?? data.checkoutUrl ?? data.url;
+      const remotePaymentId = data.payment_id ?? data.paymentId ?? data.reference;
+
+      if (!remotePaymentId || !checkoutUrl) {
+        throw new Error('Réponse Jɛmɛnipay incomplète (paymentId ou checkoutUrl manquant).');
+      }
 
       this.logger.log(`Jemenipay checkout initiated: ${remotePaymentId} for plan ${request.plan} (${request.amount} ${request.currency})`);
 
@@ -132,6 +136,33 @@ export class JemenipayProvider implements PaymentProvider {
       };
     }
 
+    // Timestamp replay protection when a timestamp is provided.
+    if (timestamp) {
+      const tsNum = Number(timestamp);
+      if (!Number.isFinite(tsNum)) {
+        return {
+          valid: false,
+          paymentId: '',
+          status: 'failed',
+          amount: 0,
+          currency: 'XOF',
+        };
+      }
+      // Support both seconds and milliseconds.
+      const tsMs = tsNum > 1e12 ? tsNum : tsNum * 1000;
+      const ageMs = Math.abs(Date.now() - tsMs);
+      if (ageMs > 5 * 60 * 1000) {
+        this.logger.warn('Jemenipay webhook timestamp too old or in the future');
+        return {
+          valid: false,
+          paymentId: '',
+          status: 'failed',
+          amount: 0,
+          currency: 'XOF',
+        };
+      }
+    }
+
     const payloadStr = Buffer.isBuffer(payload)
       ? payload.toString('utf8')
       : payload;
@@ -153,7 +184,7 @@ export class JemenipayProvider implements PaymentProvider {
     const sigLower = signature.trim().toLowerCase();
     const isValid =
       sigLower === expectedHmac.toLowerCase() ||
-      (expectedHmacWithTs && sigLower === expectedHmacWithTs.toLowerCase());
+      (expectedHmacWithTs !== null && sigLower === expectedHmacWithTs.toLowerCase());
 
     if (!isValid) {
       this.logger.warn('Jemenipay webhook signature mismatch');
