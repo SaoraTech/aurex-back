@@ -25,9 +25,9 @@ describe('QuotasService', () => {
 
         // 1. Atomic reservation query
         if (queryText.includes('INSERT INTO feature_quota_usage')) {
-          const userId = chunks[3];
-          const feature = chunks[5];
-          const limit = chunks[17] ?? 10;
+          const userId = chunks.find((c: any) => typeof c === 'string' && (c.startsWith('user_') || c === 'userA' || c === 'userB')) ?? chunks[3];
+          const feature = chunks.find((c: any) => typeof c === 'string' && (c === 'document_analysis' || c === 'image_analysis' || c === 'exercise_photo_analysis' || c === 'math_compute')) ?? chunks[5];
+          const limit = (typeof chunks[chunks.length - 2] === 'number' ? chunks[chunks.length - 2] : 10);
 
           const key = `${userId}:${feature}`;
           const current = usageTable.get(key) ?? { used_count: 0, limit };
@@ -43,8 +43,8 @@ describe('QuotasService', () => {
 
         // 2. Compensation query
         if (queryText.includes('UPDATE feature_quota_usage')) {
-          const userId = chunks[1];
-          const feature = chunks[3];
+          const userId = chunks.find((c: any) => typeof c === 'string' && (c.startsWith('user_') || c === 'userA' || c === 'userB')) ?? chunks[3];
+          const feature = chunks.find((c: any) => typeof c === 'string' && (c === 'document_analysis' || c === 'image_analysis' || c === 'exercise_photo_analysis' || c === 'math_compute')) ?? chunks[5];
           const key = `${userId}:${feature}`;
           const current = usageTable.get(key);
           if (current) {

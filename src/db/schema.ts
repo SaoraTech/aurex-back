@@ -4,7 +4,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
-export const planEnum = pgEnum('plan', ['free','plus','pro']);
+export const planEnum = pgEnum('plan', ['free', 'plus', 'pro', 'plus_promo', 'pro_promo']);
 export const messageRole = pgEnum('message_role', ['user','assistant','system','tool']);
 export const subjectEnum = pgEnum('subject', ['calculus','algebra','geometry','statistics','general']);
 export const artifactType = pgEnum('artifact_type', ['equation','graph','proof','solution','document','other']);
@@ -178,6 +178,7 @@ export const featureQuotaLedger = pgTable('feature_quota_ledger', {
   id: text('id').primaryKey(), // operationId / requestId
   userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
   feature: varchar('feature', { length: 60 }).notNull(),
+  units: integer('units').notNull().default(1),
   status: varchar('status', { length: 20 }).notNull(), // reserved, consumed, refunded, timed_out
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),

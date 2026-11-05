@@ -26,3 +26,4 @@ export const tooManyRequests = (code: string, message: string, retryAfterSeconds
   new AppException(429, code, message, undefined, retryAfterSeconds);
 export const serviceUnavailable = (code: string, message: string, retryAfterSeconds?: number) =>
   new AppException(503, code, message, undefined, retryAfterSeconds);
+export const badGateway = (code: string, message: string) => new AppException(502, code, message);
