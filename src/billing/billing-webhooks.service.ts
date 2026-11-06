@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { and, eq, lte, sql } from 'drizzle-orm';
+import { and, eq, lte, ne, or, sql } from 'drizzle-orm';
 import { badGateway, badRequest, notFound, unauthorized } from '../common/errors';
 import { newId } from '../common/ids';
 import { DRIZZLE } from '../db/db.constants';
