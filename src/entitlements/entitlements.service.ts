@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, ne } from 'drizzle-orm';
 import { DRIZZLE } from '../db/db.constants';
 import { subscription } from '../db/schema';
 import { newId } from '../common/ids';
@@ -58,27 +58,39 @@ export class EntitlementsService {
       updatedAt: new Date(),
     };
 
+    let current: any;
     if (existing) {
-      await db.update(subscription).set(values).where(eq(subscription.id, existing.id));
-      return { id: existing.id, ...values };
+      const [updated] = await db.update(subscription).set(values)
+        .where(eq(subscription.id, existing.id)).returning();
+      current = updated ?? { id: existing.id, ...values };
+    } else {
+      const [created] = await db.insert(subscription).values({
+        id: newId(),
+        userId: input.userId,
+        ...values,
+        provider: input.provider,
+        providerSubscriptionId: input.providerSubscriptionId,
+        createdAt: new Date(),
+      }).returning();
+      current = created;
     }
 
-    await db.update(subscription).set({ status: 'canceled', updatedAt: new Date() }).where(and(
-      eq(subscription.userId, input.userId),
-      eq(subscription.provider, input.provider),
-      eq(subscription.status, 'active'),
-    ));
+    // Aurex grants one effective paid entitlement at a time. When a new provider
+    // confirms an active purchase, close competing active subscriptions across
+    // providers, while preserving the subscription being updated.
+    if (input.status === 'active' && current?.id) {
+      await db.update(subscription).set({
+        status: 'canceled',
+        cancelAtPeriodEnd: false,
+        updatedAt: new Date(),
+      }).where(and(
+        eq(subscription.userId, input.userId),
+        eq(subscription.status, 'active'),
+        ne(subscription.id, current.id),
+      ));
+    }
 
-    const [created] = await db.insert(subscription).values({
-      id: newId(),
-      userId: input.userId,
-      ...values,
-      provider: input.provider,
-      providerSubscriptionId: input.providerSubscriptionId,
-      createdAt: new Date(),
-    }).returning();
-
-    return created;
+    return current;
   }
 
   async expireProviderSubscriptions(userId: string, provider: string) {
