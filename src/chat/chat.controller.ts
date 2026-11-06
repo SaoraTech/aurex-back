@@ -1,4 +1,5 @@
-import { Body, Controller, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, HttpException, Param, Post, Res, UseGuards } from '@nestjs/common';
+import type { Response } from 'express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import { RequireUserGuard } from '../auth/require-user.guard';
@@ -37,6 +38,63 @@ class SendMessageDto {
 @Controller('chat')
 export class ChatController {
   constructor(private readonly chat: ChatService) {}
+
+
+  @Post('messages/stream')
+  @Protect('chat')
+  async stream(
+    @CurrentUserId() userId: string,
+    @RequestId() rid: string,
+    @Body() dto: SendMessageDto,
+    @Res() response: Response,
+  ) {
+    const { model: _ignored, ...rest } = dto;
+    const abortController = new AbortController();
+    response.status(200).set({
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+    response.flushHeaders();
+    response.on('close', () => {
+      if (!response.writableEnded) abortController.abort();
+    });
+
+    try {
+      const result = await this.chat.send(
+        userId,
+        { ...rest, requestId: rest.requestId ?? rid, model: 'groq' },
+        rid,
+        {
+          signal: abortController.signal,
+          onToken: (delta) => {
+            if (!response.writableEnded) {
+              response.write('event: delta\\ndata: ' + JSON.stringify({ delta }) + '\\n\\n');
+            }
+          },
+        },
+      );
+      if (!response.writableEnded) {
+        response.write('event: done\\ndata: ' + JSON.stringify(result) + '\\n\\n');
+      }
+    } catch (error) {
+      if (!response.writableEnded) {
+        const payload = error instanceof HttpException
+          ? error.getResponse()
+          : { code: 'CHAT_GENERATION_FAILED', message: 'La génération a échoué.' };
+        response.write('event: error\\ndata: ' + JSON.stringify(payload) + '\\n\\n');
+      }
+    } finally {
+      if (!response.writableEnded) response.end();
+    }
+  }
+
+  @Post('generations/:requestId/cancel')
+  @Protect('chat')
+  cancel(@CurrentUserId() userId: string, @Param('requestId') requestId: string) {
+    return this.chat.cancelGeneration(userId, requestId);
+  }
 
   @Post('messages')
   @Protect('chat')
