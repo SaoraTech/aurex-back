@@ -18,6 +18,18 @@ export class AdminController {
     return this.admin.dashboard();
   }
 
+  @Get('audit-events')
+  @Protect('read')
+  auditEvents(
+    @Query('action') action?: string,
+    @Query('actorUserId') actorUserId?: string,
+    @Query('targetType') targetType?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
+    return this.admin.listAuditEvents(action, actorUserId, targetType, limit, offset);
+  }
+
   @Get('publications')
   @Protect('read')
   publications(
