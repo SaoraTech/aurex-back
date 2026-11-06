@@ -350,7 +350,11 @@ export class BillingWebhooksService {
         .filter(Boolean)
         .map((value: string) => new Date(value))
         .filter((value: Date) => Number.isFinite(value.getTime()));
-      if (expirations.length === 0) return null;
+      if (expirations.length === 0) {
+        // A genuinely non-expiring entitlement is valid; a malformed supplied
+        // expiry must fail closed rather than becoming indefinite access.
+        return entry.expires_date || entry.grace_period_expires_date ? new Date(0) : null;
+      }
       return new Date(Math.max(...expirations.map((value: Date) => value.getTime())));
     };
     const isActive = (entry: any) => {
