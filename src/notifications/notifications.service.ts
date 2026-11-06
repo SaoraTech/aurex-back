@@ -102,6 +102,10 @@ export class NotificationsService {
       }
 
       const json = await res.json() as { data?: { transactionId?: string; acknowledged?: boolean } };
+      if (json?.data?.acknowledged === false) {
+        this.logger.warn({ msg: 'novu_trigger_not_acknowledged', workflow: input.workflowId });
+        return { sent: false, reason: 'not_acknowledged', transactionId: json?.data?.transactionId };
+      }
       return {
         sent: true,
         transactionId: json?.data?.transactionId,
