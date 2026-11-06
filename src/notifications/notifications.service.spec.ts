@@ -46,8 +46,11 @@ describe('NotificationsService', () => {
     });
   });
 
-  it('upserts a subscriber and subscribes it to the audience-filtered announcements topic', async () => {
+  it('upserts a subscriber, joins global and current-plan topics, and removes stale plan topics', async () => {
     const fetchMock = jest.spyOn(global, 'fetch')
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}) } as Response)
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}) } as Response)
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}) } as Response)
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}) } as Response)
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}) } as Response);
     const svc = createService({ novuApiKey: 'novu_test', novuApiUrl: 'https://api.novu.co' });
@@ -60,14 +63,25 @@ describe('NotificationsService', () => {
       preferences: { editorialEmailEnabled: true, editorialPushEnabled: false, transactionalEmailEnabled: true, transactionalPushEnabled: true },
     })).resolves.toMatchObject({ sent: true });
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    const topicCall = fetchMock.mock.calls[1];
-    expect(String(topicCall[0])).toContain('/v2/topics/announcements%3Aall/subscriptions');
-    const body = JSON.parse(String(topicCall[1]?.body));
-    expect(body).toMatchObject({ name: 'Aurex announcements' });
-    expect(body.subscriptions[0]).toMatchObject({ identifier: 'user_1-announcements', subscriberId: 'user_1' });
-    expect(body.preferences[0]).toMatchObject({ workflowId: 'aurex-announcement' });
-    expect(body.preferences[0].condition.or).toHaveLength(2);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    const globalTopicCall = fetchMock.mock.calls[1];
+    expect(String(globalTopicCall[0])).toContain('/v2/topics/announcements%3Aall/subscriptions');
+    expect(JSON.parse(String(globalTopicCall[1]?.body))).toMatchObject({
+      name: 'Aurex announcements',
+      subscriptions: [{ identifier: 'user_1-announcements', subscriberId: 'user_1' }],
+    });
+
+    const planTopicCall = fetchMock.mock.calls[2];
+    expect(String(planTopicCall[0])).toContain('/v2/topics/announcements%3Aplus/subscriptions');
+    expect(JSON.parse(String(planTopicCall[1]?.body))).toMatchObject({
+      name: 'Aurex announcements — plus',
+      subscriptions: [{ identifier: 'user_1-announcements', subscriberId: 'user_1' }],
+    });
+
+    expect(fetchMock.mock.calls[3][1]?.method).toBe('DELETE');
+    expect(String(fetchMock.mock.calls[3][0])).toContain('/announcements%3Afree/subscriptions');
+    expect(fetchMock.mock.calls[4][1]?.method).toBe('DELETE');
+    expect(String(fetchMock.mock.calls[4][0])).toContain('/announcements%3Apro/subscriptions');
   });
 
   it('refuses to trigger a workflow without a recipient', async () => {
