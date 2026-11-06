@@ -366,10 +366,11 @@ export class BillingWebhooksService {
       }
     }
 
+    const isTransfer = String(event.type ?? '').toUpperCase() === 'TRANSFER';
     const candidates = [...new Set([
       ...(event.transferredTo ?? []),
       event.appUserId,
-      event.originalAppUserId,
+      ...(isTransfer ? [] : [event.originalAppUserId]),
     ].filter(Boolean) as string[])];
     const matchedUsers: Array<{ userId: string; appUserId: string }> = [];
     for (const candidate of candidates) {
