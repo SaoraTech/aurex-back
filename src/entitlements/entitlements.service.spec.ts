@@ -31,4 +31,52 @@ describe('EntitlementsService', () => {
     expect(plans.getSubscriptionInfo).toHaveBeenCalledWith('user_1');
     expect(plans.getLimits).toHaveBeenCalledWith('plus_promo');
   });
+
+  it('replaces competing active subscriptions across providers in one transaction', async () => {
+    const tx = {
+      select: jest.fn(() => ({
+        from: jest.fn(() => ({
+          where: jest.fn(() => ({
+            limit: jest.fn().mockResolvedValue([]),
+          })),
+        })),
+      })),
+      insert: jest.fn(() => ({
+        values: jest.fn(() => ({
+          returning: jest.fn().mockResolvedValue([{
+            id: 'sub_new',
+            userId: 'user_1',
+            plan: 'pro',
+            provider: 'dodo_payments',
+            providerSubscriptionId: 'dodo_sub_1',
+            status: 'active',
+          }]),
+        })),
+      })),
+      update: jest.fn(() => ({
+        set: jest.fn(() => ({
+          where: jest.fn().mockResolvedValue([]),
+        })),
+      })),
+    };
+    const db = { transaction: jest.fn(async (callback: (executor: any) => Promise<any>) => callback(tx)) };
+    const plans = { getSubscriptionInfo: jest.fn(), getLimits: jest.fn() };
+    const service = new EntitlementsService(plans as any, db as any);
+
+    const result = await service.activateSubscription({
+      userId: 'user_1',
+      plan: 'pro',
+      provider: 'dodo_payments',
+      providerSubscriptionId: 'dodo_sub_1',
+      status: 'active',
+      currentPeriodStart: new Date('2026-11-06T00:00:00.000Z'),
+      currentPeriodEnd: new Date('2026-12-06T00:00:00.000Z'),
+      cancelAtPeriodEnd: false,
+    });
+
+    expect(result.id).toBe('sub_new');
+    expect(db.transaction).toHaveBeenCalledTimes(1);
+    expect(tx.update).toHaveBeenCalledTimes(1);
+  });
+
 });
