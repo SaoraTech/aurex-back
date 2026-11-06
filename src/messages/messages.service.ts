@@ -28,8 +28,9 @@ export class MessagesService {
   }
   async remove(userId:string,conversationId:string,messageId:string){
     const item=await this.getOwnedMessage(userId,conversationId,messageId);
+    await this.db.delete(auditEvent).where(and(eq(auditEvent.actorUserId,userId),eq(auditEvent.targetType,'message'),eq(auditEvent.targetId,messageId)));
     await this.db.delete(message).where(and(eq(message.id,messageId),eq(message.conversationId,conversationId)));
-    await this.db.insert(auditEvent).values({id:newId(),actorUserId:userId,action:'message.deleted',targetType:'message',targetId:messageId,metadata:{role:item.role},createdAt:new Date()});
+    await this.db.insert(auditEvent).values({id:newId(),actorUserId:userId,action:'message.deleted',targetType:'message',targetId:messageId,metadata:{role:item.role},createdAt:new Date()})
     await this.db.update(conversation).set({updatedAt:new Date()}).where(eq(conversation.id,conversationId));
     return {deleted:true,messageId};
   }

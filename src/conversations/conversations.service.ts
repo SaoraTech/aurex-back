@@ -60,8 +60,27 @@ export class ConversationsService {
   async unarchive(userId:string,id:string) {
     await this.getOwned(userId,id); const [updated]=await this.db.update(conversation).set({archivedAt:null,updatedAt:new Date()}).where(and(eq(conversation.id,id),eq(conversation.userId,userId))).returning(); return updated;
   }
-  async delete(userId:string,id:string) { await this.getOwned(userId,id); await this.db.delete(conversation).where(and(eq(conversation.id,id),eq(conversation.userId,userId))); return {deleted:true}; }
-  async deleteAll(userId:string) { const rows=await this.db.delete(conversation).where(eq(conversation.userId,userId)).returning({id:conversation.id}); return {deleted:true,count:rows.length}; }
+  async delete(userId:string,id:string) {
+    await this.getOwned(userId,id);
+    const messageRows = await this.db.select({ id: message.id }).from(message).where(eq(message.conversationId,id));
+    const targetIds = [id, ...messageRows.map((row: { id: string }) => row.id)];
+    await this.db.delete(auditEvent).where(and(eq(auditEvent.actorUserId,userId),
+      inArray(auditEvent.targetType,['conversation','message']), inArray(auditEvent.targetId,targetIds)));
+    await this.db.delete(conversation).where(and(eq(conversation.id,id),eq(conversation.userId,userId)));
+    return {deleted:true};
+  }
+  async deleteAll(userId:string) {
+    const conversations = await this.db.select({ id: conversation.id }).from(conversation).where(eq(conversation.userId,userId));
+    const conversationIds: string[] = conversations.map((row: { id: string }) => row.id);
+    if (conversationIds.length) {
+      const messageRows = await this.db.select({ id: message.id }).from(message).where(inArray(message.conversationId,conversationIds));
+      const targetIds = [...conversationIds, ...messageRows.map((row: { id: string }) => row.id)];
+      await this.db.delete(auditEvent).where(and(eq(auditEvent.actorUserId,userId),
+        inArray(auditEvent.targetType,['conversation','message']), inArray(auditEvent.targetId,targetIds)));
+    }
+    const rows=await this.db.delete(conversation).where(eq(conversation.userId,userId)).returning({id:conversation.id});
+    return {deleted:true,count:rows.length};
+  }
 
   private async pinnedIds(userId: string, ids: string[]) {
     if (!ids.length) return new Set<string>();
