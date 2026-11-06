@@ -97,3 +97,9 @@ Novu subscribers are synchronized when the authenticated client requests its sub
 ### Billing provider selection
 
 Existing clients that omit `provider` continue to use Jɛmɛnipay. Web/Desktop clients may explicitly send `provider: "dodo_payments"`. Dodo product IDs must be configured in the provider dashboard and mapped through the DODO_PRODUCT_* environment variables; the backend does not create products or invent their prices.
+
+### Store purchase verification requirements
+
+- RevenueCat webhook events are authenticated using the configured authorization header. If HMAC signing is enabled in RevenueCat, configure `REVENUECAT_WEBHOOK_SIGNING_SECRET`; the backend verifies the raw body and timestamp, then re-reads the subscriber's current entitlements from RevenueCat before updating access.
+- Huawei subscription events are verified using the configured AppGallery IAP public key and the Huawei subscription purchase-token verification API. The client must send the Aurex user ID as `developerPayload` at purchase time; the backend trusts only the signed server-returned purchase data.
+- Dodo webhook signatures are verified against the raw request body and the webhook ID/timestamp headers. Provider event IDs are persisted in the idempotency ledger.

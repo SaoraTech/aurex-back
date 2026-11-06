@@ -12,6 +12,7 @@ export interface HuaweiVerifiedSubscription {
   purchaseTime: Date;
   expirationDate: Date;
   isAutoRenewing: boolean;
+  isActive: boolean;
 }
 
 @Injectable()
@@ -92,7 +93,8 @@ export class HuaweiIapProvider {
     const proProductId = this.config.get<string>('huaweiIapProProductId');
     const plan = productId === plusProductId ? 'plus' : productId === proProductId ? 'pro' : null;
     const expirationDate = new Date(Number(purchase.expirationDate));
-    const purchaseTime = new Date(Number(purchase.purchaseTime ?? purchase.purchaseTimeMillis));
+    const purchaseTimeCandidate = new Date(Number(purchase.purchaseTime ?? purchase.purchaseTimeMillis));
+    const purchaseTime = Number.isFinite(purchaseTimeCandidate.getTime()) ? purchaseTimeCandidate : new Date();
     const payload = String(purchase.developerPayload ?? '');
     let userId = payload;
     try {
@@ -104,13 +106,10 @@ export class HuaweiIapProvider {
 
     if (
       purchase.kind !== 2 ||
-      (purchase.subIsvalid ?? purchase.subIsValid) !== true ||
-      Number(purchase.purchaseState) !== 0 ||
       String(purchase.subscriptionId) !== subscriptionId ||
       !plan ||
       !userId ||
-      !Number.isFinite(expirationDate.getTime()) ||
-      expirationDate <= new Date()
+      !Number.isFinite(expirationDate.getTime())
     ) {
       throw new Error('Huawei IAP subscription data does not grant an active Aurex entitlement');
     }
@@ -124,6 +123,7 @@ export class HuaweiIapProvider {
       purchaseTime,
       expirationDate,
       isAutoRenewing: Boolean(purchase.autoRenewing),
+      isActive: (purchase.subIsvalid ?? purchase.subIsValid) === true && Number(purchase.purchaseState) === 0 && expirationDate > new Date(),
     };
   }
 

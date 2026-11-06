@@ -7,7 +7,7 @@ import { payment, subscription, user } from '../db/schema';
 import { PlanName, PlansService } from '../plans/plans.service';
 import { JemenipayProvider } from './providers/jemenipay.provider';
 import { DodoPaymentsProvider } from './providers/dodo-payments.provider';
-import { PaymentMethodType, PaymentProviderName } from './providers/payment-provider.interface';
+import { PaymentMethodType } from './providers/payment-provider.interface';
 
 @Injectable()
 export class BillingService {
@@ -120,7 +120,7 @@ export class BillingService {
           return {
             paymentId: existing.providerReference ?? existing.id,
             checkoutUrl: existing.checkoutUrl,
-            provider: 'jemenipay',
+            provider: existing.provider,
             status: existing.status === 'succeeded' ? 'succeeded' : 'pending',
           };
         }

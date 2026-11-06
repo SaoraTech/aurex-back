@@ -14,6 +14,7 @@ import type { Request } from 'express';
 import { RequireUserGuard } from '../auth/require-user.guard';
 import { CurrentUserId } from '../common/user.decorator';
 import { BillingService } from './billing.service';
+import { BillingWebhooksService } from './billing-webhooks.service';
 import { PaymentMethodType } from './providers/payment-provider.interface';
 
 class CheckoutDto {
@@ -36,7 +37,10 @@ class CheckoutDto {
 @ApiTags('billing')
 @Controller('billing')
 export class BillingController {
-  constructor(private readonly billing: BillingService) {}
+  constructor(
+    private readonly billing: BillingService,
+    private readonly webhooks: BillingWebhooksService,
+  ) {}
 
   @ApiBearerAuth()
   @UseGuards(RequireUserGuard)
@@ -54,6 +58,37 @@ export class BillingController {
       idempotencyKey,
       dto.provider ?? 'jemenipay',
     );
+  }
+
+  @Post('webhook/dodo-payments')
+  @HttpCode(200)
+  async dodoPaymentsWebhook(
+    @Req() req: RawBodyRequest<Request>,
+    @Headers('webhook-id') webhookId?: string,
+    @Headers('webhook-timestamp') webhookTimestamp?: string,
+    @Headers('webhook-signature') webhookSignature?: string,
+  ) {
+    const raw = req.rawBody ?? Buffer.from(JSON.stringify(req.body ?? {}));
+    return this.webhooks.handleDodo(raw, { webhookId, webhookTimestamp, webhookSignature });
+  }
+
+  @Post('webhook/revenuecat')
+  @HttpCode(200)
+  async revenueCatWebhook(
+    @Req() req: RawBodyRequest<Request>,
+    @Headers('authorization') authorization?: string,
+    @Headers('x-revenuecat-webhook-signature') signature?: string,
+  ) {
+    const raw = req.rawBody ?? Buffer.from(JSON.stringify(req.body ?? {}));
+    return this.webhooks.handleRevenueCat(raw, authorization, signature);
+  }
+
+  @Post('webhook/huawei-iap')
+  @HttpCode(200)
+  async huaweiIapWebhook(@Req() req: RawBodyRequest<Request>) {
+    const raw = req.rawBody ?? Buffer.from(JSON.stringify(req.body ?? {}));
+    const result = await this.webhooks.handleHuawei(raw);
+    return { responseCode: '0', result };
   }
 
   @Post('webhook/jemenipay')
