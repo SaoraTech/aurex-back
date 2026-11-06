@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { ProviderError } from '../common/provider-error';
 import { AudioService } from './audio.service';
 
@@ -73,6 +74,35 @@ describe('AudioService - ElevenLabs Sole Provider & Atomic Quotas', () => {
     });
     await expect(svc.synthesize('u1', 'Bonjour')).rejects.toMatchObject({ status: 502 });
     expect(quotas.compensateQuota).toHaveBeenCalled();
+  });
+
+  it('logs sanitized provider diagnostics without logging user text', async () => {
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const { svc } = build({
+      eleven: {
+        synthesize: jest.fn().mockRejectedValue(
+          new ProviderError('elevenlabs', 'auth', 'sensitive provider detail', 401),
+        ),
+      },
+    });
+
+    await expect(svc.synthesize('u1', 'PRIVATE_USER_TEXT', 'req-audio-123'))
+      .rejects.toMatchObject({ status: 502 });
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    const logged = String(warn.mock.calls[0][0]);
+    const diagnostic = JSON.parse(logged);
+    expect(diagnostic).toMatchObject({
+      event: 'audio.provider_failure',
+      provider: 'elevenlabs',
+      operation: 'tts',
+      kind: 'auth',
+      httpStatus: 401,
+      requestId: 'req-audio-123',
+    });
+    expect(logged).not.toContain('PRIVATE_USER_TEXT');
+    expect(logged).not.toContain('sensitive provider detail');
+    warn.mockRestore();
   });
 
   it('transcribes valid audio using ElevenLabs with quota check', async () => {
