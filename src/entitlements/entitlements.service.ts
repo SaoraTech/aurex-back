@@ -40,6 +40,9 @@ export class EntitlementsService {
     currentPeriodEnd: Date | null;
     cancelAtPeriodEnd: boolean;
   }, executor?: any) {
+    if (!executor && this.db?.transaction) {
+      return this.db.transaction((tx: any) => this.activateSubscription(input, tx));
+    }
     const db = executor ?? this.db;
     if (!db) throw new Error('Entitlements database is unavailable');
 
