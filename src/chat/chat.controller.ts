@@ -1,4 +1,4 @@
-import { Body, Controller, HttpException, Param, Post, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpException, Param, Post, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
@@ -88,6 +88,12 @@ export class ChatController {
     } finally {
       if (!response.writableEnded) response.end();
     }
+  }
+
+  @Get('generations/:requestId')
+  @Protect('chat')
+  generationStatus(@CurrentUserId() userId: string, @Param('requestId') requestId: string) {
+    return this.chat.generationStatus(userId, requestId);
   }
 
   @Post('generations/:requestId/cancel')
