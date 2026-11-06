@@ -2,7 +2,7 @@
 
 **Status:** implementation committed to main; live Azure credentials and production smoke tests are still required.
 
-This document records the migration from ElevenLabs to Azure AI Speech. Azure is the only speech provider in the backend. Groq remains the LLM provider. SMP is planned as the deterministic mathematical platform but is not implemented or operational yet. It is not used as a speech fallback.
+This document records the migration from ElevenLabs to Azure AI Speech. Azure is the only speech provider in the backend. Groq remains the LLM provider. Mathematical questions are currently handled through ordinary conversational generation; no separate deterministic math engine is integrated.
 
 ## 1. Implementation
 
