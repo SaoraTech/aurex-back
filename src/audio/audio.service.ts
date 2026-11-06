@@ -21,7 +21,7 @@ export class AudioService{
   const spoken=normalizeForSpeech(rawText,language);
   const maxChars=this.config.get<number>('azureSpeechMaxTextChars')??5000;
   if(!spoken)throw badRequest('EMPTY_TEXT','Le texte est vide.');
-  if(spoken.length>maxChars)throw payloadTooLarge('TEXT_TOO_LONG',\`Le texte dépasse \${maxChars} caractères.\`);
+  if(spoken.length>maxChars)throw payloadTooLarge('TEXT_TOO_LONG',`Le texte dépasse ${maxChars} caractères.`);
   if(!this.azure.isEnabled())throw providerErrorToHttp(new ProviderError('azure-speech','not_configured','Azure Speech is not configured'),'Le service de synthèse vocale');
   const plan=await this.plans.getEffectivePlan(userId),opId=requestId??newId();
   const quota=await this.quotas.reserveQuota(userId,'tts_speech',plan,opId,spoken.length);
@@ -41,14 +41,14 @@ export class AudioService{
  async transcribe(userId:string,body:Buffer|undefined,options:{declaredMime?:string;filename?:string;language?:string}={},requestId?:string):Promise<TranscriptionResult>{
   if(!body?.length)throw badRequest('EMPTY_BODY','Fichier audio manquant.');
   const maxBytes=this.config.get<number>('audioMaxUploadBytes')??20971520;
-  if(body.length>maxBytes)throw payloadTooLarge('AUDIO_TOO_LARGE',\`Audio trop volumineux (max \${Math.round(maxBytes/1048576)} Mo).\`);
+  if(body.length>maxBytes)throw payloadTooLarge('AUDIO_TOO_LARGE',`Audio trop volumineux (max ${Math.round(maxBytes/1048576)} Mo).`);
   const kind=sniffAudio(body);if(!kind)throw badRequest('INVALID_AUDIO','Format audio non reconnu.');
   if(!this.azure.isEnabled())throw providerErrorToHttp(new ProviderError('azure-speech','not_configured','Azure Speech is not configured'),'Le service de reconnaissance vocale');
   const plan=await this.plans.getEffectivePlan(userId),opId=requestId??newId();
   const quota=await this.quotas.reserveQuota(userId,'stt_transcription',plan,opId,1);
   if(!quota.allowed)throw new AppException(429,quota.errorCode??'STT_QUOTA_EXCEEDED',quota.errorMessage??'Quota de reconnaissance vocale atteint.',
    {feature:quota.feature,limit:quota.limit,used:quota.used,remaining:quota.remaining,resetAt:quota.resetAt,retryAfterSeconds:quota.retryAfterSeconds},quota.retryAfterSeconds);
-  const file=options.filename??\`audio.\${kind.ext}\`,language=options.language??this.config.get<string>('audioDefaultLanguage')??'fr';
+  const file=options.filename??`audio.${kind.ext}`,language=options.language??this.config.get<string>('audioDefaultLanguage')??'fr';
   const started=Date.now();
   try{
    const result=await this.azure.transcribe(body,kind.mime,file,language);await this.quotas.commitQuota(opId);
