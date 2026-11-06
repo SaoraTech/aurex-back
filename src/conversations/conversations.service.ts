@@ -1,7 +1,7 @@
 import { Inject, Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { and, desc, eq, ilike, inArray, isNotNull, isNull, lt, or } from 'drizzle-orm';
 import { DRIZZLE } from '../db/db.constants';
-import { conversation, message } from '../db/schema';
+import { auditEvent, conversation, message } from '../db/schema';
 import { newId } from '../common/ids';
 type Cursor = { at: string; id: string };
 const encodeCursor = (row: { updatedAt?: Date; createdAt?: Date; id: string }) => Buffer.from(JSON.stringify({ at: (row.updatedAt ?? row.createdAt)!.toISOString(), id: row.id })).toString('base64url');
@@ -14,7 +14,7 @@ const pageSize = (v?: number) => Math.min(Math.max(Number(v) || 30, 1), 100);
 @Injectable()
 export class ConversationsService {
   constructor(@Inject(DRIZZLE) private readonly db: any) {}
-  async list(userId: string) { return this.db.select().from(conversation).where(eq(conversation.userId, userId)).orderBy(desc(conversation.updatedAt)).limit(100); }
+  async list(userId: string) { const rows = await this.db.select().from(conversation).where(eq(conversation.userId, userId)).orderBy(desc(conversation.updatedAt)).limit(100); return this.withPinned(userId, rows); }
   async page(userId: string, input: { limit?: number; cursor?: string; q?: string; archived?: 'true'|'false'|'all' }) {
     const filters: any[] = [eq(conversation.userId, userId)];
     if (input.archived === 'true') filters.push(isNotNull(conversation.archivedAt)); else if (input.archived !== 'all') filters.push(isNull(conversation.archivedAt));
@@ -30,7 +30,7 @@ export class ConversationsService {
     const limit = pageSize(input.limit);
     const rows = await this.db.select().from(conversation).where(and(...filters)).orderBy(desc(conversation.updatedAt), desc(conversation.id)).limit(limit + 1);
     const hasMore = rows.length > limit; const items = rows.slice(0,limit);
-    return { items, nextCursor: hasMore && items.length ? encodeCursor(items[items.length-1]) : null, hasMore };
+    return { items: await this.withPinned(userId, items), nextCursor: hasMore && items.length ? encodeCursor(items[items.length-1]) : null, hasMore };
   }
   async create(userId: string, input: { title?: string; subject?: 'calculus'|'algebra'|'geometry'|'statistics'|'general' }) {
     const now = new Date(); const item = { id:newId(), userId, title:input.title?.slice(0,160) ?? 'Nouvelle conversation', subject:input.subject ?? 'general', createdAt:now, updatedAt:now };
@@ -62,4 +62,41 @@ export class ConversationsService {
   }
   async delete(userId:string,id:string) { await this.getOwned(userId,id); await this.db.delete(conversation).where(and(eq(conversation.id,id),eq(conversation.userId,userId))); return {deleted:true}; }
   async deleteAll(userId:string) { const rows=await this.db.delete(conversation).where(eq(conversation.userId,userId)).returning({id:conversation.id}); return {deleted:true,count:rows.length}; }
+
+  private async pinnedIds(userId: string, ids: string[]) {
+    if (!ids.length) return new Set<string>();
+    const events = await this.db.select({ targetId: auditEvent.targetId, action: auditEvent.action })
+      .from(auditEvent)
+      .where(and(eq(auditEvent.actorUserId, userId), eq(auditEvent.targetType, 'conversation'),
+        inArray(auditEvent.targetId, ids), inArray(auditEvent.action, ['conversation.pinned', 'conversation.unpinned'])))
+      .orderBy(desc(auditEvent.createdAt)).limit(1000);
+    const states = new Map<string, boolean>();
+    for (const event of events) {
+      if (event.targetId && !states.has(event.targetId)) states.set(event.targetId, event.action === 'conversation.pinned');
+    }
+    return new Set([...states.entries()].filter(([, pinned]) => pinned).map(([id]) => id));
+  }
+
+  private async withPinned<T extends { id: string }>(userId: string, rows: T[]) {
+    const pinned = await this.pinnedIds(userId, rows.map(row => row.id));
+    return rows.map(row => ({ ...row, pinned: pinned.has(row.id) }));
+  }
+
+  async pin(userId: string, id: string) {
+    await this.getOwned(userId, id);
+    if (!(await this.pinnedIds(userId, [id])).has(id)) {
+      await this.db.insert(auditEvent).values({ id: newId(), actorUserId: userId, action: 'conversation.pinned',
+        targetType: 'conversation', targetId: id, metadata: null, createdAt: new Date() });
+    }
+    return { conversationId: id, pinned: true };
+  }
+
+  async unpin(userId: string, id: string) {
+    await this.getOwned(userId, id);
+    if ((await this.pinnedIds(userId, [id])).has(id)) {
+      await this.db.insert(auditEvent).values({ id: newId(), actorUserId: userId, action: 'conversation.unpinned',
+        targetType: 'conversation', targetId: id, metadata: null, createdAt: new Date() });
+    }
+    return { conversationId: id, pinned: false };
+  }
 }
