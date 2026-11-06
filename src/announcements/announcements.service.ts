@@ -151,15 +151,12 @@ export class AnnouncementsService {
     const channels = (published.notificationChannels ?? []) as NotificationChannel[];
     if (channels.length === 0) return;
 
-    const topicKey = published.targetAudience === 'all'
-      ? 'announcements:all'
-      : `announcements:${published.targetAudience}`;
+    const audience = published.targetAudience === 'all' ? 'all' : published.targetAudience;
     const now = new Date();
     const deliveryIds = channels.map(channel => `announcement:${published.id}:${channel}`);
 
-    // Persist the outbox rows before calling Novu. If the process crashes after
-    // the external request, the deterministic transaction ID and stable row IDs
-    // allow the scheduled worker to safely retry the dispatch.
+    // Persist the outbox rows before calling Novu. Stable IDs let the scheduled
+    // worker recover interrupted channel dispatches without duplicating rows.
     await this.db.insert(notificationDelivery).values(channels.map((channel, index) => ({
       id: deliveryIds[index],
       announcementId: published.id,
@@ -175,46 +172,51 @@ export class AnnouncementsService {
       updatedAt: now,
     }))).onConflictDoNothing({ target: notificationDelivery.id });
 
-    const staleBefore = new Date(now.getTime() - 5 * 60 * 1000);
-    const claimed = await this.db.update(notificationDelivery).set({
-      status: 'processing',
-      updatedAt: now,
-    }).where(and(
-      inArray(notificationDelivery.id, deliveryIds),
-      or(
-        eq(notificationDelivery.status, 'pending'),
-        eq(notificationDelivery.status, 'failed'),
-        and(
-          eq(notificationDelivery.status, 'processing'),
-          lte(notificationDelivery.updatedAt, staleBefore),
+    for (const channel of channels) {
+      const deliveryId = `announcement:${published.id}:${channel}`;
+      const staleBefore = new Date(Date.now() - 5 * 60 * 1000);
+      const claimed = await this.db.update(notificationDelivery).set({
+        status: 'processing',
+        updatedAt: new Date(),
+      }).where(and(
+        eq(notificationDelivery.id, deliveryId),
+        or(
+          eq(notificationDelivery.status, 'pending'),
+          eq(notificationDelivery.status, 'failed'),
+          and(
+            eq(notificationDelivery.status, 'processing'),
+            lte(notificationDelivery.updatedAt, staleBefore),
+          ),
         ),
-      ),
-    )).returning({ id: notificationDelivery.id });
+      )).returning({ id: notificationDelivery.id });
 
-    if (claimed.length === 0) return;
+      if (claimed.length === 0) continue;
 
-    const result = await this.notifications.triggerWorkflow({
-      topicKey,
-      workflowId: 'aurex-announcement',
-      transactionId: `aurex-announcement-${published.id}`,
-      payload: {
-        announcementId: published.id,
-        targetAudience: published.targetAudience,
-        title: published.title,
-        summary: published.summary,
-        category: published.category,
-        link: published.link,
-        channels,
-      },
-    });
+      const topicKey = `announcements:${audience}:${channel}`;
+      const result = await this.notifications.triggerWorkflow({
+        topicKey,
+        workflowId: 'aurex-announcement',
+        transactionId: `aurex-announcement-${published.id}-${channel}`,
+        payload: {
+          announcementId: published.id,
+          targetAudience: published.targetAudience,
+          title: published.title,
+          summary: published.summary,
+          category: published.category,
+          link: published.link,
+          channel,
+          channels: [channel],
+        },
+      });
 
-    await this.db.update(notificationDelivery).set({
-      providerTransactionId: result.transactionId ?? null,
-      status: result.sent ? 'triggered' : 'failed',
-      errorCode: result.reason ?? null,
-      attemptCount: sql`${notificationDelivery.attemptCount} + 1`,
-      updatedAt: new Date(),
-    }).where(inArray(notificationDelivery.id, claimed.map((row: { id: string }) => row.id)));
+      await this.db.update(notificationDelivery).set({
+        providerTransactionId: result.transactionId ?? null,
+        status: result.sent ? 'triggered' : 'failed',
+        errorCode: result.reason ?? null,
+        attemptCount: sql`${notificationDelivery.attemptCount} + 1`,
+        updatedAt: new Date(),
+      }).where(eq(notificationDelivery.id, deliveryId));
+    }
   }
 
   async publishDueScheduled() {
