@@ -47,6 +47,7 @@ export const EnvSchema = z.object({
   REVENUECAT_PRO_ENTITLEMENT_ID: optStr,
   HUAWEI_IAP_CLIENT_ID: optStr,
   HUAWEI_IAP_CLIENT_SECRET: optStr,
+  HUAWEI_IAP_PAYLOAD_SECRET: z.string().min(32).optional(),
   HUAWEI_IAP_API_BASE_URL: z.string().url().optional(),
   HUAWEI_IAP_PUBLIC_KEY: optStr,
   HUAWEI_IAP_SIGNATURE_ALGORITHM: z.enum(['SHA256withRSA','SHA256withRSA/PSS']).default('SHA256withRSA'),
@@ -75,6 +76,9 @@ export const EnvSchema = z.object({
   }
   if(v.R2_ENABLED==='true') for(const k of ['R2_ACCOUNT_ID','R2_ACCESS_KEY_ID','R2_SECRET_ACCESS_KEY'] as const) need(!!v[k],k,'Required when R2_ENABLED=true');
   if(v.BRAVE_SEARCH_ENABLED==='true') need(!!v.BRAVE_SEARCH_API_KEY,'BRAVE_SEARCH_API_KEY','Required when BRAVE_SEARCH_ENABLED=true');
+  if(v.HUAWEI_IAP_CLIENT_ID || v.HUAWEI_IAP_CLIENT_SECRET || v.HUAWEI_IAP_PUBLIC_KEY) {
+    need(!!v.HUAWEI_IAP_PAYLOAD_SECRET,'HUAWEI_IAP_PAYLOAD_SECRET','A dedicated 32-character signing secret is required when Huawei IAP is configured');
+  }
   const mode=v.ARCJET_MODE??(v.ARCJET_KEY?'live':'disabled');
   if(mode!=='disabled')need(!!v.ARCJET_KEY,'ARCJET_KEY','Required when ARCJET_MODE is live or dry_run');
   if(v.NODE_ENV==='production'&&mode==='disabled')need(v.ARCJET_ALLOW_DISABLED_IN_PRODUCTION==='true','ARCJET_MODE','Arcjet must be active in production or explicitly acknowledged');
