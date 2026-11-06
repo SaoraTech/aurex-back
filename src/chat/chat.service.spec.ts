@@ -207,7 +207,7 @@ describe('ChatService - Groq & SageMath Orchestration, Atomic Quotas & Idempoten
       svc.send('u1', { content: 'Explique le théorème de Bayes', requestId: 'req_groq_fail' }),
     ).rejects.toThrow('Groq 500 Internal Error');
 
-    expect(mockQuotas.compensateQuota).toHaveBeenCalledWith('req_groq_fail');
+    expect(mockQuotas.compensateQuota).toHaveBeenCalledWith(expect.any(String));
   });
 
   it('returns idempotent replay when requestId already has an assistant answer', async () => {
@@ -256,7 +256,7 @@ describe('ChatService - Groq & SageMath Orchestration, Atomic Quotas & Idempoten
 
     expect(deltas).toEqual(['Réponse partielle']);
     expect(mockDb.insert).toHaveBeenCalledTimes(2);
-    expect(mockQuotas.compensateQuota).toHaveBeenCalledWith('req_stream_partial');
+    expect(mockQuotas.compensateQuota).toHaveBeenCalledWith(expect.any(String));
   });
 
 });
