@@ -10,6 +10,8 @@ Base path: /api/v1. Better Auth routes are mounted under /api/auth/*.
 | GET | /entitlements/me | Authenticated user's effective plan, subscription status and quotas | Yes |
 | GET | /admin/dashboard | Admin dashboard totals and recent audit activity | Admin |
 | GET | /admin/audit-events | Paginated admin audit history; supports action, actorUserId and targetType filters | Admin |
+
+Admin audit history records publication creation, edits and publication actions with the authenticated administrator as actor. Audit metadata excludes publication text and credentials. Audit persistence errors are logged without rolling back an already completed publication action.
 | GET | /admin/publications | Admin publication list | Admin |
 | POST | /announcements | Create a publication (admin only) | Admin |
 | PATCH | /announcements/:id | Update a draft or scheduled publication (admin only) | Admin |
