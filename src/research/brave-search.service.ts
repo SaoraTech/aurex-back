@@ -6,7 +6,7 @@ import { TtlCache } from '../common/ttl-cache';
 import { MetricsService } from '../observability/metrics.service';
 
 const BASE = 'https://api.search.brave.com/res/v1/llm/context';
-export interface BraveHit { url: string; title: string; content: string; publishedDate?: string }
+export interface BraveHit { url: string; title: string; content: string; score?: number; publishedDate?: string }
 export interface BraveSearchParams {
   query: string;
   topic?: 'general' | 'news';
@@ -95,10 +95,12 @@ export class BraveSearchService {
       const age = Array.isArray(metadata?.age) ? metadata.age : [];
       const publishedDate = str(age[1], 40) || str(age[3], 40) || undefined;
       const snippets = Array.isArray(entry?.snippets) ? entry.snippets : [];
+      const score = typeof entry?.score === 'number' && Number.isFinite(entry.score) ? entry.score : undefined;
       return {
         url,
         title: str(entry?.title, 300) || str(metadata?.title, 300) || url,
         content: snippets.map((s: unknown) => str(s, 8000)).filter(Boolean).join('\n\n').slice(0, 12000),
+        ...(score !== undefined ? { score } : {}),
         publishedDate,
       };
     }).filter(hit => /^https?:\/\//i.test(hit.url) && hit.content.length > 0);
