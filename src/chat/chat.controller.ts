@@ -58,7 +58,7 @@ export class ChatController {
     });
     response.flushHeaders();
     response.on('close', () => {
-      if (!response.writableEnded) abortController.abort();
+      if (!response.writableEnded && !response.destroyed) abortController.abort();
     });
 
     try {
@@ -69,7 +69,7 @@ export class ChatController {
         {
           signal: abortController.signal,
           onToken: (delta) => {
-            if (!response.writableEnded) {
+            if (!response.writableEnded && !response.destroyed) {
               response.write('event: delta\ndata: ' + JSON.stringify({ delta }) + '\n\n');
             }
           },
@@ -86,7 +86,7 @@ export class ChatController {
         response.write('event: error\ndata: ' + JSON.stringify(payload) + '\n\n');
       }
     } finally {
-      if (!response.writableEnded) response.end();
+      if (!response.writableEnded && !response.destroyed) response.end();
     }
   }
 
