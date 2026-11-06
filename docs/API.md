@@ -7,6 +7,7 @@ Base path: /api/v1. Better Auth routes are mounted under /api/auth/*.
 | GET | /health | Liveness | No |
 | GET | /health/ready | PostgreSQL readiness | No |
 | GET | /plans | Plan display | No |
+| GET | /entitlements/me | Authenticated user's effective plan, subscription status and quotas | Yes |
 | GET/POST | /conversations | List/create conversations | Yes |
 | GET | /conversations/:id/messages | List messages owned by user | Yes |
 | DELETE | /conversations/:id | Delete owned conversation | Yes |
