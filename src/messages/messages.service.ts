@@ -24,8 +24,31 @@ export class MessagesService {
   async versions(userId:string,conversationId:string,messageId:string){
     const current=await this.getOwnedMessage(userId,conversationId,messageId);
     const revisions=await this.db.select().from(auditEvent).where(and(eq(auditEvent.actorUserId,userId),eq(auditEvent.targetType,'message'),eq(auditEvent.targetId,messageId),inArray(auditEvent.action,['message.edited','message.alternative']))).orderBy(desc(auditEvent.createdAt)).limit(50);
-    return {current:{content:current.content,createdAt:current.createdAt},previous:revisions.filter((e:any)=>e.action==='message.edited').map((e:any)=>({content:e.metadata?.previousContent??null,createdAt:e.createdAt})).filter((e:any)=>typeof e.content==='string'),alternatives:revisions.filter((e:any)=>e.action==='message.alternative').map((e:any)=>({content:e.metadata?.content??null,messageId:e.metadata?.alternativeMessageId??null,createdAt:e.createdAt})).filter((e:any)=>typeof e.content==='string')};
+    return {current:{content:current.content,createdAt:current.createdAt},previous:revisions.filter((e:any)=>e.action==='message.edited').map((e:any)=>({id:e.id,content:e.metadata?.previousContent??null,createdAt:e.createdAt})).filter((e:any)=>typeof e.content==='string'),alternatives:revisions.filter((e:any)=>e.action==='message.alternative').map((e:any)=>({id:e.id,content:e.metadata?.content??null,messageId:e.metadata?.alternativeMessageId??null,createdAt:e.createdAt})).filter((e:any)=>typeof e.content==='string')};
   }
+  async restoreVersion(userId:string,conversationId:string,messageId:string,versionId:string){
+    const current=await this.getOwnedMessage(userId,conversationId,messageId);
+    const [version]=await this.db.select().from(auditEvent).where(and(
+      eq(auditEvent.id,versionId),eq(auditEvent.actorUserId,userId),
+      eq(auditEvent.targetType,'message'),eq(auditEvent.targetId,messageId),
+    )).limit(1);
+    if(!version || !['message.edited','message.alternative'].includes(version.action)) {
+      throw new NotFoundException('Message version not found');
+    }
+    const content=version.action==='message.alternative' ? version.metadata?.content : version.metadata?.previousContent;
+    if(typeof content!=='string') throw new BadRequestException('This version cannot be restored');
+    await this.db.insert(auditEvent).values({
+      id:newId(),actorUserId:userId,action:'message.edited',targetType:'message',
+      targetId:messageId,metadata:{previousContent:current.content},createdAt:new Date(),
+    });
+    const sourceData=current.sources && typeof current.sources==='object' ? current.sources : {};
+    const sources=version.action==='message.alternative' ? {...sourceData,superseded:false} : current.sources;
+    const [updated]=await this.db.update(message).set({content,sources})
+      .where(and(eq(message.id,messageId),eq(message.conversationId,conversationId))).returning();
+    await this.db.update(conversation).set({updatedAt:new Date()}).where(eq(conversation.id,conversationId));
+    return {message:updated,restoredVersionId:versionId};
+  }
+
   async remove(userId:string,conversationId:string,messageId:string){
     const item=await this.getOwnedMessage(userId,conversationId,messageId);
     await this.db.delete(auditEvent).where(and(eq(auditEvent.actorUserId,userId),eq(auditEvent.targetType,'message'),eq(auditEvent.targetId,messageId)));
