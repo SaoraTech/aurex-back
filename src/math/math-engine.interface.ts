@@ -29,7 +29,7 @@ export type MathErrorCode =
   | 'SECURITY_REJECTED';
 
 export interface MathResult {
-  engine: 'sagemath';
+  engine: 'smp';
   status: MathExecutionStatus;
   latex?: string;
   plainText?: string;
@@ -40,7 +40,7 @@ export interface MathResult {
 }
 
 export interface MathEngine {
-  readonly engineName: 'sagemath';
+  readonly engineName: 'smp';
   isAvailable(): boolean;
   execute(input: MathOperationInput): Promise<MathResult>;
 }

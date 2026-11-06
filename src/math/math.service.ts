@@ -5,19 +5,19 @@ import {
   MathOperationType,
   MathResult,
 } from './math-engine.interface';
-import { SageMathEngine } from './sagemath.engine';
+import { SmpMathEngine } from './smp.engine';
 
 @Injectable()
 export class MathService {
   private readonly logger = new Logger(MathService.name);
 
   constructor(
-    private readonly sageMath: SageMathEngine,
+    private readonly smpMath: SmpMathEngine,
     private readonly usage: UsageService,
   ) {}
 
   isAvailable(): boolean {
-    return this.sageMath.isAvailable();
+    return this.smpMath.isAvailable();
   }
 
   async compute(
@@ -26,7 +26,7 @@ export class MathService {
     requestId?: string,
   ): Promise<MathResult> {
     const started = Date.now();
-    const result = await this.sageMath.execute(input);
+    const result = await this.smpMath.execute(input);
     const latency = Date.now() - started;
 
     const outcome =
@@ -39,7 +39,7 @@ export class MathService {
     await this.usage.record({
       userId,
       kind: 'math_call',
-      provider: 'sagemath',
+      provider: 'smp',
       units: 1,
       latencyMs: latency,
       outcome,
@@ -50,7 +50,7 @@ export class MathService {
   }
 
   /**
-   * Parses natural language mathematical questions into structured SageMath operations.
+   * Parses natural language mathematical questions into structured SMP operations.
    * NEVER replaces unknown expressions with dummy hardcoded expressions.
    * Returns null if no structured operation can be reliably determined.
    */

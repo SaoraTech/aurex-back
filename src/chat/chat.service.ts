@@ -265,7 +265,7 @@ export class ChatService {
         .orderBy(desc(memoryItem.updatedAt))
         .limit(10);
 
-      // 4. Orchestration with SageMath (Mathematical Intent Detection & Exact Verification)
+      // 4. Orchestration with SMP (intent detection; computation unavailable until SMP is implemented)
       let mathData: {
         operation: string;
         expression: string;
@@ -315,7 +315,7 @@ export class ChatService {
                 operation: detectedMath.operation,
                 expression: detectedMath.expression,
                 verified: false,
-                error: mathResult.error ?? 'Calcul non vérifié par SageMath',
+                error: mathResult.error ?? 'Calcul non vérifié : SMP n’est pas encore opérationnel',
               };
               // Don't charge quota for unverified/failed calculation
               await this.quotas.compensateQuota(mathOpId);
@@ -326,7 +326,7 @@ export class ChatService {
               operation: detectedMath.operation,
               expression: detectedMath.expression,
               verified: false,
-              error: err.message ?? 'Service de calcul SageMath indisponible',
+              error: err.message ?? 'SMP n’est pas encore opérationnel',
             };
           }
         } else {
@@ -334,7 +334,7 @@ export class ChatService {
             operation: detectedMath.operation,
             expression: detectedMath.expression,
             verified: false,
-            error: 'Quota quotidien de calcul SageMath atteint pour ce plan',
+            error: 'Quota quotidien de calcul mathématique atteint pour ce plan',
           };
         }
       }
@@ -351,19 +351,19 @@ export class ChatService {
       let mathInstruction = '';
       if (mathData) {
         if (mathData.verified) {
-          mathInstruction = `\n\n[CALCUL VÉRIFIÉ PAR LE MOTEUR SAGEMATH]
+          mathInstruction = `\n\n[CALCUL VÉRIFIÉ PAR LE MOTEUR SMP]
 Opération : ${mathData.operation}
 Expression : ${mathData.expression}
 Résultat exact : ${mathData.plainText ?? mathData.latex}
 ${mathData.latex ? `LaTeX : ${mathData.latex}` : ''}
 ${mathData.steps?.length ? `Étapes de calcul : ${mathData.steps.join(' -> ')}` : ''}
-INSTRUCTION STRICTE : Le calcul exact ci-dessus a été formellement calculé et vérifié par le moteur SageMath. Tu DOIS impérativement t'appuyer sur cette valeur exacte dans ton explication pédagogique en français, sans modifier le résultat mathématique.`;
+INSTRUCTION STRICTE : Le calcul exact ci-dessus a été formellement calculé et vérifié par le moteur SMP. Tu DOIS impérativement t'appuyer sur cette valeur exacte dans ton explication pédagogique en français, sans modifier le résultat mathématique.`;
         } else {
-          mathInstruction = `\n\n[NOTE SAGEMATH : MOTEUR INDISPONIBLE OU NON CONFIGURÉ]
+          mathInstruction = `\n\n[NOTE SMP : MOTEUR NON OPÉRATIONNEL]
 Opération détectée : ${mathData.operation}
 Expression : ${mathData.expression}
 Raison : ${mathData.error}
-INSTRUCTION STRICTE : Le moteur SageMath n'a pas pu vérifier ce calcul exact (${mathData.error}). Tu DOIS obligatoirement indiquer avec transparence à l'utilisateur que le calcul formel n'a pas pu être formellement vérifié par le moteur officiel SageMath, tout en lui fournissant la méthode et la démarche de résolution pas à pas. Ne prétends JAMAIS que le résultat a été vérifié.`;
+INSTRUCTION STRICTE : SMP n'est pas encore opérationnel. Tu DOIS indiquer avec transparence que le calcul n'a pas été vérifié par un moteur mathématique déterministe. Tu peux expliquer une méthode de résolution, mais ne présente jamais le résultat comme formellement vérifié.`;
         }
       }
 

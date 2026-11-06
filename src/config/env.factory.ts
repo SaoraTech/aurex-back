@@ -7,7 +7,6 @@ export const envFactory=()=>{
   trustedOrigins:(env.TRUSTED_ORIGINS??'').split(',').map(e=>e.trim()).filter(Boolean),
   corsOrigin:env.CORS_ORIGIN??'',trustedProxies:(env.TRUSTED_PROXIES??'').split(',').map(e=>e.trim()).filter(Boolean),
   groqApiKey:env.GROQ_API_KEY,groqLlmModel:env.GROQ_MODEL??env.GROQ_LLM_MODEL,
-  sagemathServiceUrl:env.SAGEMATH_SERVICE_URL,sagemathApiKey:env.SAGEMATH_API_KEY,sagemathTimeoutMs:env.SAGEMATH_TIMEOUT_MS,
   azureSpeechEnabled:env.AZURE_SPEECH_ENABLED,azureSpeechKey:env.AZURE_SPEECH_KEY,
   azureSpeechRegion:env.AZURE_SPEECH_REGION,azureSpeechResourceName:env.AZURE_SPEECH_RESOURCE_NAME,
   azureSpeechTimeoutMs:env.AZURE_SPEECH_TIMEOUT_MS,azureSpeechMaxTextChars:env.AZURE_SPEECH_MAX_TEXT_CHARS,

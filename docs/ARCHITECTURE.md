@@ -14,7 +14,7 @@ Mobile / Web / Desktop clients
              |
     +--------+---------+-------------+
     |                  |             |
-   Groq              SageMath    Azure AI Speech
+   Groq              SMP (planned)  Azure AI Speech
   (LLM)          (deterministic     (STT + TTS)
                    math)
              |

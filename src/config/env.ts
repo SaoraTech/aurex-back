@@ -18,7 +18,6 @@ export const EnvSchema = z.object({
   BETTER_AUTH_URL: z.string().url().default('http://localhost:3000'),
   ADMIN_EMAILS: z.string().optional().default(''),
   GROQ_API_KEY: optStr, GROQ_MODEL: optStr, GROQ_LLM_MODEL: z.string().default('openai/gpt-oss-120b'),
-  SAGEMATH_SERVICE_URL: optStr, SAGEMATH_API_KEY: optStr, SAGEMATH_TIMEOUT_MS: z.coerce.number().optional().default(15000),
   AZURE_SPEECH_ENABLED: bool,
   AZURE_SPEECH_KEY: optStr, AZURE_SPEECH_REGION: optStr, AZURE_SPEECH_RESOURCE_NAME: optStr,
   AZURE_SPEECH_TIMEOUT_MS: z.coerce.number().int().positive().default(30000),

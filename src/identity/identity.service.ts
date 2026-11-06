@@ -47,7 +47,7 @@ export class IdentityService {
     const lines = [
       'Conversation continue avec historique : disponible.',
       'Mémoire utilisateur : disponible (éléments épinglés fournis dans DONNÉES UTILISATEUR, le cas échéant).',
-      "Moteur de calcul formel (Wolfram|Alpha) : NON utilisé pour cette réponse ; ne prétends pas avoir vérifié un résultat par ce moyen.",
+      "Moteur mathématique SMP : non opérationnel ; aucun résultat ne peut être présenté comme formellement vérifié par un moteur de calcul.",
     ];
     if (web.performed) lines.push(`Recherche web : EFFECTUÉE pour cette réponse (${web.sourceCount ?? 0} source(s) fournie(s) ci-dessous, non fiables par nature).`);
     else if (web.requested) lines.push(`Recherche web : demandée mais NON réalisée (${web.failureCode ?? 'indisponible'}). N'affirme pas avoir consulté le Web ; indique-le à l'utilisateur si pertinent.`);

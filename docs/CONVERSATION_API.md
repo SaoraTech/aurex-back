@@ -26,4 +26,4 @@ Legacy list and message endpoints keep their array responses for mobile compatib
 - The legacy POST /api/v1/chat/messages remains available and returns a complete JSON response.
 
 ## Free Web research
-When Brave Search is not configured, the backend uses DuckDuckGo HTML for general discovery, Wikimedia for encyclopedic results and Crossref for academic metadata. These free public services are best-effort and may impose rate limits or change response formats. Brave remains optional and preferred only when explicitly enabled and configured. Groq remains the planner/synthesizer; SageMath remains separate.
+When Brave Search is not configured, the backend uses DuckDuckGo HTML for general discovery, Wikimedia for encyclopedic results and Crossref for academic metadata. These free public services are best-effort and may impose rate limits or change response formats. Brave remains optional and preferred only when explicitly enabled and configured. Groq remains the planner/synthesizer; mathematical computation is unavailable until SMP is implemented.

@@ -47,7 +47,7 @@ export class ProviderRegistryService {
         ),
       },
       math: {
-        sagemath: 'configured' as ProviderState,
+        smp: 'not_implemented' as ProviderState,
       },
       security: {
         arcjet: c('arcjetMode') === 'disabled' ? ('disabled' as ProviderState) : this.state(true, !!c('arcjetKey')),

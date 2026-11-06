@@ -78,9 +78,9 @@ The code and environment schema no longer reference ElevenLabs. Operational acti
 
 A GitHub commit cannot revoke a key held by a third-party service or edit Render environment variables.
 
-## Groq LLM and SageMath
+## Groq LLM and SMP
 
-Groq is the language-model integration. SageMath is the deterministic mathematical engine abstraction. They are separate from speech: neither is used for STT/TTS or as a speech fallback.
+Groq is the language-model integration. SMP is the planned deterministic mathematical platform, but it is not implemented or operational yet. Mathematical requests must not be described as formally verified. These capabilities are separate from speech.
 
 ## Plans, subscriptions and quotas
 
