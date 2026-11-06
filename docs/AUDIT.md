@@ -33,7 +33,7 @@ STT quota remains request-count based. Actual transcription duration is recorded
 4. Run build, lint, unit tests and live Azure French/English smoke tests.
 5. Enable AZURE_SPEECH_ENABLED=true only after live checks succeed.
 
-No Render deployment, Azure resource mutation, third-party credential revocation or database migration is performed by this repository change.
+No manual Render deployment, Azure resource mutation, third-party credential revocation or database migration was invoked by this work. If Render auto-deploy is enabled for main, a GitHub push may still trigger the configured pipeline.
 
 ---
 
