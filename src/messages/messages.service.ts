@@ -26,6 +26,18 @@ export class MessagesService {
     const revisions=await this.db.select().from(auditEvent).where(and(eq(auditEvent.actorUserId,userId),eq(auditEvent.targetType,'message'),eq(auditEvent.targetId,messageId),inArray(auditEvent.action,['message.edited','message.alternative']))).orderBy(desc(auditEvent.createdAt)).limit(50);
     return {current:{content:current.content,createdAt:current.createdAt},previous:revisions.filter((e:any)=>e.action==='message.edited').map((e:any)=>({id:e.id,content:e.metadata?.previousContent??null,createdAt:e.createdAt})).filter((e:any)=>typeof e.content==='string'),alternatives:revisions.filter((e:any)=>e.action==='message.alternative').map((e:any)=>({id:e.id,content:e.metadata?.content??null,messageId:e.metadata?.alternativeMessageId??null,createdAt:e.createdAt})).filter((e:any)=>typeof e.content==='string')};
   }
+  async share(userId:string,conversationId:string,messageId:string){
+    const item=await this.getOwnedMessage(userId,conversationId,messageId);
+    if(item.role!=='assistant') throw new BadRequestException('Only assistant messages can be shared');
+    const convo=await this.conversations.getOwned(userId,conversationId);
+    return {
+      title:convo.title ?? 'Réponse Aurex',
+      text:item.content,
+      math:item.mathResult || item.computation ? { result:item.mathResult, latex:item.computation, input:item.mathInput } : null,
+      sources:item.sources ?? null,
+    };
+  }
+
   async restoreVersion(userId:string,conversationId:string,messageId:string,versionId:string){
     const current=await this.getOwnedMessage(userId,conversationId,messageId);
     const [version]=await this.db.select().from(auditEvent).where(and(
