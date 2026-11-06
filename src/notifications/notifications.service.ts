@@ -129,7 +129,8 @@ export class NotificationsService {
     const key = this.apiKey;
     if (!key) return { sent: false, reason: 'not_configured' };
 
-    const baseUrl = this.apiUrl.replace(/\\/+$/, '');
+    let baseUrl = this.apiUrl;
+    while (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
     const headers = {
       'Content-Type': 'application/json',
       Authorization: `ApiKey ${key}`,
