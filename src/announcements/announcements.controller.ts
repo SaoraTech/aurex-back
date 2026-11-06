@@ -207,8 +207,8 @@ export class AnnouncementsController {
   @ApiBearerAuth()
   @UseGuards(RequireUserGuard, RequireAdminGuard)
   @Protect('default')
-  update(@Param('id') id: string, @Body() dto: UpdateAnnouncementBodyDto) {
-    return this.announcements.update(id, dto);
+  update(@Param('id') id: string, @Body() dto: UpdateAnnouncementBodyDto, @CurrentUserId() adminId: string) {
+    return this.announcements.update(id, dto, adminId);
   }
 
   @Post(':id/publish')
