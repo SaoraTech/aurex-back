@@ -11,7 +11,11 @@ async function main() {
   try {
     const announcements = app.get(AnnouncementsService);
     const result = await announcements.publishDueScheduled();
-    Logger.log(`Scheduled publications processed: ${result.processed}`, 'ScheduledAnnouncementsJob');
+    const notifications = await announcements.retryFailedEditorialNotifications();
+    Logger.log(
+      `Scheduled publications processed: ${result.processed}; editorial notification retries: ${notifications.retried}`,
+      'ScheduledAnnouncementsJob',
+    );
   } finally {
     await app.close();
   }
