@@ -34,7 +34,7 @@ describe('NotificationsService', () => {
     const svc = createService({ novuApiKey: 'novu_test', novuApiUrl: 'https://api.novu.co' });
 
     await expect(svc.triggerWorkflow({
-      topicKey: 'announcements:plus',
+      topicKey: 'announcements:plus:push',
       workflowId: 'aurex-announcement',
       payload: { announcementId: 'ann_1' },
     })).resolves.toMatchObject({ sent: true, transactionId: 'txn_1' });
@@ -42,12 +42,16 @@ describe('NotificationsService', () => {
     const [, init] = fetchMock.mock.calls[0];
     expect(JSON.parse(String(init?.body))).toMatchObject({
       workflowId: 'aurex-announcement',
-      to: { type: 'Topic', topicKey: 'announcements:plus' },
+      to: { type: 'Topic', topicKey: 'announcements:plus:push' },
     });
   });
 
-  it('upserts a subscriber, joins global and current-plan topics, and removes stale plan topics', async () => {
+  it('upserts a subscriber, joins enabled global/plan channel topics, and removes disabled/stale topics', async () => {
     const fetchMock = jest.spyOn(global, 'fetch')
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}) } as Response)
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}) } as Response)
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}) } as Response)
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}) } as Response)
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}) } as Response)
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}) } as Response)
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}) } as Response)
@@ -63,25 +67,26 @@ describe('NotificationsService', () => {
       preferences: { editorialEmailEnabled: true, editorialPushEnabled: false, transactionalEmailEnabled: true, transactionalPushEnabled: true },
     })).resolves.toMatchObject({ sent: true });
 
-    expect(fetchMock).toHaveBeenCalledTimes(5);
-    const globalTopicCall = fetchMock.mock.calls[1];
-    expect(String(globalTopicCall[0])).toContain('/v2/topics/announcements%3Aall/subscriptions');
-    expect(JSON.parse(String(globalTopicCall[1]?.body))).toMatchObject({
-      name: 'Aurex announcements',
+    expect(fetchMock).toHaveBeenCalledTimes(9);
+    const globalEmailCall = fetchMock.mock.calls[1];
+    expect(String(globalEmailCall[0])).toContain('/v2/topics/announcements%3Aall%3Aemail/subscriptions');
+    expect(JSON.parse(String(globalEmailCall[1]?.body))).toMatchObject({
+      name: 'Aurex announcements — all — email',
       subscriptions: [{ identifier: 'user_1-announcements', subscriberId: 'user_1' }],
     });
 
-    const planTopicCall = fetchMock.mock.calls[2];
-    expect(String(planTopicCall[0])).toContain('/v2/topics/announcements%3Aplus/subscriptions');
-    expect(JSON.parse(String(planTopicCall[1]?.body))).toMatchObject({
-      name: 'Aurex announcements — plus',
+    const planEmailCall = fetchMock.mock.calls[2];
+    expect(String(planEmailCall[0])).toContain('/v2/topics/announcements%3Aplus%3Aemail/subscriptions');
+    expect(JSON.parse(String(planEmailCall[1]?.body))).toMatchObject({
+      name: 'Aurex announcements — plus — email',
       subscriptions: [{ identifier: 'user_1-announcements', subscriberId: 'user_1' }],
     });
 
-    expect(fetchMock.mock.calls[3][1]?.method).toBe('DELETE');
-    expect(String(fetchMock.mock.calls[3][0])).toContain('/announcements%3Afree/subscriptions');
-    expect(fetchMock.mock.calls[4][1]?.method).toBe('DELETE');
-    expect(String(fetchMock.mock.calls[4][0])).toContain('/announcements%3Apro/subscriptions');
+    for (const index of [3, 4, 5, 6, 7, 8]) {
+      expect(fetchMock.mock.calls[index][1]?.method).toBe('DELETE');
+    }
+    expect(String(fetchMock.mock.calls[5][0])).toContain('/announcements%3Aall%3Apush/subscriptions');
+    expect(String(fetchMock.mock.calls[6][0])).toContain('/announcements%3Aplus%3Apush/subscriptions');
   });
 
   it('refuses to trigger a workflow without a recipient', async () => {
