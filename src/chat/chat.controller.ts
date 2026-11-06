@@ -96,6 +96,17 @@ export class ChatController {
     return this.chat.cancelGeneration(userId, requestId);
   }
 
+  @Post('conversations/:conversationId/messages/:messageId/regenerate')
+  @Protect('chat')
+  regenerate(
+    @CurrentUserId() userId: string,
+    @RequestId() rid: string,
+    @Param('conversationId') conversationId: string,
+    @Param('messageId') messageId: string,
+  ) {
+    return this.chat.regenerate(userId, conversationId, messageId, rid);
+  }
+
   @Post('messages')
   @Protect('chat')
   send(@CurrentUserId() userId: string, @RequestId() rid: string, @Body() dto: SendMessageDto) {
