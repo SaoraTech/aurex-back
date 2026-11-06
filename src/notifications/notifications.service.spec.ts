@@ -101,4 +101,22 @@ describe('NotificationsService', () => {
     await expect(svc.triggerWorkflow({ subscriberId: 'sub_test', workflowId: 'test_workflow' }))
       .resolves.toMatchObject({ sent: false, reason: 'provider_error' });
   });
+  it('does not mark a Novu workflow as accepted when acknowledgement is false', async () => {
+    jest.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ data: { acknowledged: false, transactionId: 'txn_rejected' } }),
+    } as Response);
+    const svc = createService({ novuApiKey: 'novu_test', novuApiUrl: 'https://api.novu.co' });
+
+    await expect(svc.triggerWorkflow({
+      topicKey: 'announcements:plus:email',
+      workflowId: 'aurex-announcement',
+    })).resolves.toMatchObject({
+      sent: false,
+      reason: 'not_acknowledged',
+      transactionId: 'txn_rejected',
+    });
+  });
+
 });
