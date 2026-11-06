@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../app.module';
 import { AnnouncementsService } from '../announcements/announcements.service';
+import { EntitlementsService } from '../entitlements/entitlements.service';
 
 async function main() {
   const app = await NestFactory.createApplicationContext(AppModule, {
@@ -10,10 +11,12 @@ async function main() {
 
   try {
     const announcements = app.get(AnnouncementsService);
+    const entitlements = app.get(EntitlementsService);
+    const subscriptions = await entitlements.expireElapsedSubscriptions();
     const result = await announcements.publishDueScheduled();
     const notifications = await announcements.retryFailedEditorialNotifications();
     Logger.log(
-      `Scheduled publications processed: ${result.processed}; editorial notification retries: ${notifications.retried}`,
+      `Subscriptions expired: ${subscriptions.expiredSubscriptions}; audiences refreshed: ${subscriptions.usersSynced}; scheduled publications processed: ${result.processed}; editorial notification retries: ${notifications.retried}`,
       'ScheduledAnnouncementsJob',
     );
   } finally {
