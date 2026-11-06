@@ -1,6 +1,6 @@
 import { ChatService } from './chat.service';
 
-describe('ChatService - Groq & SMP Orchestration, Atomic Quotas & Idempotency', () => {
+describe('ChatService - Groq conversation, atomic quotas & idempotency', () => {
   let svc: ChatService;
   let mockDb: any;
   let mockConversations: any;
@@ -9,7 +9,6 @@ describe('ChatService - Groq & SMP Orchestration, Atomic Quotas & Idempotency', 
   let mockQuotas: any;
   let mockIdentity: any;
   let mockResearch: any;
-  let mockMath: any;
   let mockUsage: any;
 
   beforeEach(() => {
@@ -85,11 +84,6 @@ describe('ChatService - Groq & SMP Orchestration, Atomic Quotas & Idempotency', 
       }),
     };
 
-    mockMath = {
-      detectAndSolve: jest.fn(),
-      compute: jest.fn(),
-    };
-
     mockUsage = {
       record: jest.fn().mockResolvedValue(undefined),
     };
@@ -102,82 +96,28 @@ describe('ChatService - Groq & SMP Orchestration, Atomic Quotas & Idempotency', 
       mockQuotas,
       mockIdentity,
       mockResearch,
-      mockMath,
       mockUsage,
     );
   });
 
-  it('informs Groq that SMP is not operational and never claims an unverified result', async () => {
-    mockMath.detectAndSolve.mockReturnValue({
-      operation: 'derivative',
-      expression: 'x^3 + 2x',
-      variable: 'x',
-    });
-
-    mockMath.compute.mockResolvedValue({
-      engine: 'smp',
-      status: 'failed',
-      errorCode: 'NOT_CONFIGURED',
-      error: 'La Saora Mathematics Platform (SMP) n’est pas encore opérationnelle.',
-      computationTimeMs: 0,
-    });
-
+  it('handles mathematical prompts as ordinary Groq conversations without a deterministic math integration', async () => {
     const res = await svc.send('u1', {
       content: 'Calcule la dérivée de x^3 + 2x',
-      requestId: 'req_math_smp_unavailable',
+      requestId: 'req_math_prompt_plain_chat',
     });
 
-    expect(mockMath.detectAndSolve).toHaveBeenCalledWith('Calcule la dérivée de x^3 + 2x');
-    expect(mockMath.compute).toHaveBeenCalledWith(
-      'u1',
-      expect.objectContaining({ operation: 'derivative' }),
-      'req_math_smp_unavailable',
-    );
     expect(mockAi.generate).toHaveBeenCalledWith(
       'free',
       expect.any(Array),
       undefined,
       expect.objectContaining({
-        systemInstruction: expect.stringContaining('[NOTE SMP : MOTEUR NON OPÉRATIONNEL]'),
+        systemInstruction: 'INSTRUCTION_SYSTEME_AUREX',
       }),
     );
-    expect(res.mathComputation).toMatchObject({
-      operation: 'derivative',
-      verified: false,
-      error: expect.stringContaining('SMP'),
-    });
-    expect(res.mathComputation).not.toHaveProperty('plainText');
-    expect(mockQuotas.compensateQuota).toHaveBeenCalledWith(expect.any(String));
-  });
-
-  it('does not persist a mathematical result when SMP reports a failed computation', async () => {
-    mockMath.detectAndSolve.mockReturnValue({
-      operation: 'factor',
-      expression: 'x^4 - 16',
-      variable: 'x',
-    });
-
-    mockMath.compute.mockResolvedValue({
-      engine: 'smp',
-      status: 'failed',
-      errorCode: 'NOT_CONFIGURED',
-      error: 'SMP n’est pas encore opérationnelle.',
-      computationTimeMs: 0,
-    });
-
-    const res = await svc.send('u1', {
-      content: 'Factorise x^4 - 16',
-      requestId: 'req_math_smp_failed',
-    });
-
-    expect(res.mathComputation).toMatchObject({
-      operation: 'factor',
-      expression: 'x^4 - 16',
-      verified: false,
-    });
-    expect(res.mathComputation).not.toHaveProperty('plainText');
-    expect(res.message.mathResult).toBeNull();
-    expect(mockQuotas.compensateQuota).toHaveBeenCalledWith(expect.any(String));
+    expect(mockQuotas.reserveQuota).toHaveBeenCalledTimes(1);
+    expect(mockQuotas.reserveQuota.mock.calls[0][1]).toBe('daily_messages');
+    expect(res.message.content).toContain('dérivée');
+    expect(res).not.toHaveProperty('mathComputation');
   });
 
   it('rejects message with 429 when daily quota is exhausted', async () => {
