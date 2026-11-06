@@ -30,6 +30,7 @@ export class ProviderRegistryService {
       ],
       webSearch: {
         brave: this.state(this.enabled('braveSearchEnabled'), !!c('braveSearchApiKey')),
+        freeResearch: 'configured' as ProviderState,
       },
       speech: {
         textToSpeech: {

@@ -10,6 +10,7 @@ import { PlanName, PlansService } from '../plans/plans.service';
 import { QuotasService } from '../quotas/quotas.service';
 import { renderWebBlock, normalizeUrl, shouldSearchWeb, stripUnknownCitations, WEB_TAG } from './prompt-safety';
 import { BraveSearchService } from './brave-search.service';
+import { FreeResearchSearchService } from './free-research-search.service';
 import { WebBundle, WebSearchSummary, WebSource } from './research.types';
 
 const PlanSchema = z.object({ queries: z.array(z.string().min(3).max(200)).min(1).max(8) });
@@ -21,9 +22,12 @@ export class WebResearchService {
     private readonly brave: BraveSearchService, private readonly ai: AiOrchestratorService, private readonly identity: IdentityService,
     private readonly plans: PlansService, private readonly usage: UsageService, private readonly config: ConfigService,
     @Optional() private readonly quotas?: QuotasService,
+    @Optional() private readonly freeSearch?: FreeResearchSearchService,
   ) {}
 
-  isAvailable() { return this.brave.isConfigured(); }
+  isAvailable() { return this.brave.isConfigured() || !!this.freeSearch; }
+  private searchProvider() { return this.brave.isConfigured() ? this.brave : this.freeSearch!; }
+  private providerName() { return this.brave.isConfigured() ? 'brave_search' : 'free_research'; }
 
   /** Plain search, no LLM. Counts against the daily web-search quota. */
   async search(userId: string, input: { query: string; topic?: 'general' | 'news'; timeRange?: 'day' | 'week' | 'month' | 'year' }, requestId?: string) {
@@ -41,7 +45,7 @@ export class WebResearchService {
     const requested = mode === 'on' || (mode === 'auto' && shouldSearchWeb(question));
     const none = (failureCode?: string): { summary: WebSearchSummary } => ({ summary: { requested, performed: false, queries: [], sources: [], failureCode } });
     if (!requested) return none();
-    if (!this.brave.isConfigured()) return none('WEB_SEARCH_NOT_CONFIGURED');
+    if (!this.isAvailable()) return none('WEB_SEARCH_NOT_CONFIGURED');
     try { await this.assertQuota(userId, 'web_search', 1, 'dailyWebSearches'); }
     catch (e) { if (e instanceof AppException) return none(e.code); throw e; }
     const bundle = await this.gather(userId, [question], {}, 5, requestId);
@@ -61,7 +65,7 @@ export class WebResearchService {
     const maxSearches = Math.min(deep ? ceiling : Math.min(3, ceiling), ceiling);
     const queries = await this.planQueries(plan, input.question, maxSearches);
     const bundle = await this.gather(userId, queries, {}, deep ? 8 : 5, requestId, deadline);
-    await this.usage.record({ userId, kind: 'deep_research', provider: 'brave_search', units: 1, outcome: bundle.failureCode ? 'error' : 'ok', requestId });
+    await this.usage.record({ userId, kind: 'deep_research', provider: this.providerName(), units: 1, outcome: bundle.failureCode ? 'error' : 'ok', requestId });
     // Never synthesise "verified" answers without real results.
     if (bundle.failureCode || !bundle.sources.length) throw new AppException(503, bundle.failureCode ?? 'WEB_SEARCH_NO_RESULTS', "Aucune source web n'a pu être obtenue ; aucune réponse vérifiée par le Web ne peut être produite.");
 
@@ -104,8 +108,8 @@ export class WebResearchService {
       if (Date.now() >= deadline) { coverage.truncated = true; coverage.queriesFailed += 1; continue; }
       const started = Date.now();
       try {
-        const { hits, cached } = await this.brave.search({ query: q, topic: opts.topic, timeRange: opts.timeRange, maxResults: maxSources });
-        if (!cached) await this.usage.record({ userId, kind: 'web_search', provider: 'brave_search', units: 1, latencyMs: Date.now() - started, outcome: 'ok', requestId });
+        const { hits, cached } = await this.searchProvider().search({ query: q, topic: opts.topic, timeRange: opts.timeRange, maxResults: maxSources });
+        if (!cached) await this.usage.record({ userId, kind: 'web_search', provider: this.providerName(), units: 1, latencyMs: Date.now() - started, outcome: 'ok', requestId });
         coverage.queriesSucceeded++;
         for (const hit of hits) {
           const key = normalizeUrl(hit.url); if (!key) continue;
@@ -114,10 +118,10 @@ export class WebResearchService {
         }
       } catch (error) {
         coverage.queriesFailed++;
-        const err = error instanceof ProviderError ? error : new ProviderError('brave_search', 'unavailable', 'unexpected');
+        const err = error instanceof ProviderError ? error : new ProviderError(this.providerName(), 'unavailable', 'unexpected');
         lastFailure = err.kind === 'quota' ? 'WEB_SEARCH_QUOTA_EXCEEDED' : err.kind === 'not_configured' ? 'WEB_SEARCH_NOT_CONFIGURED' : 'WEB_SEARCH_UNAVAILABLE';
-        await this.usage.record({ userId, kind: 'web_search', provider: 'brave_search', units: 0, latencyMs: Date.now() - started, outcome: err.kind, requestId });
-        this.logger.warn({ msg: 'brave_search_failed', kind: err.kind });
+        await this.usage.record({ userId, kind: 'web_search', provider: this.providerName(), units: 0, latencyMs: Date.now() - started, outcome: err.kind, requestId });
+        this.logger.warn({ msg: 'web_search_failed', kind: err.kind });
       }
     }
     const ranked = [...merged.values()].sort((a, b) => b.score - a.score);
@@ -135,7 +139,7 @@ export class WebResearchService {
       if (!qRes.allowed) throw tooManyRequests(kind === 'web_search' ? 'WEB_SEARCH_QUOTA_EXCEEDED' : 'DEEP_RESEARCH_QUOTA_EXCEEDED', 'Quota quotidien de recherche atteint.');
       return qRes.operationId;
     }
-    if (!this.brave.isConfigured()) throw new AppException(503, 'WEB_SEARCH_NOT_CONFIGURED', "La recherche web n'est pas configurée sur ce serveur.");
+    if (!this.isAvailable()) throw new AppException(503, 'WEB_SEARCH_NOT_CONFIGURED', "La recherche web n'est pas configurée sur ce serveur.");
     const plan = await this.plans.getEffectivePlan(userId);
     const used = await this.usage.sumSince(userId, kind, startOfUtcDay());
     if (used + needed > this.plans.getLimits()[plan][limitKey]) throw tooManyRequests(kind === 'web_search' ? 'WEB_SEARCH_QUOTA_EXCEEDED' : 'DEEP_RESEARCH_QUOTA_EXCEEDED', 'Quota quotidien de recherche atteint.');

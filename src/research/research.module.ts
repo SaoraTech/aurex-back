@@ -5,12 +5,13 @@ import { PlansModule } from '../plans/plans.module';
 import { QuotasModule } from '../quotas/quotas.module';
 import { ResearchController } from './research.controller';
 import { BraveSearchService } from './brave-search.service';
+import { FreeResearchSearchService } from './free-research-search.service';
 import { WebResearchService } from './web-research.service';
 
 @Module({
   imports: [AiModule, PlansModule, QuotasModule, ObservabilityModule],
   controllers: [ResearchController],
-  providers: [BraveSearchService, WebResearchService],
+  providers: [BraveSearchService, FreeResearchSearchService, WebResearchService],
   exports: [WebResearchService],
 })
 export class ResearchModule {}
