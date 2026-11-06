@@ -24,7 +24,7 @@ export interface SubscriptionInfo {
   isPromo: boolean;
   status: 'active' | 'expired' | 'canceled' | 'none';
   currentPeriodStart?: Date;
-  currentPeriodEnd?: Date;
+  currentPeriodEnd?: Date | null;
   cancelAtPeriodEnd?: boolean;
 }
 
@@ -177,8 +177,7 @@ export class PlansService {
       };
     }
 
-    try {
-      const now = new Date();
+    const now = new Date();
       const rows = await this.db
         .select({
           plan: subscription.plan,
@@ -241,9 +240,5 @@ export class PlansService {
         currentPeriodEnd: found.currentPeriodEnd,
         cancelAtPeriodEnd: found.cancelAtPeriodEnd,
       };
-    } catch (error) {
-      // A database outage must not silently downgrade a paying subscriber to Free.
-      throw error;
-    }
   }
 }
