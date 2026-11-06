@@ -22,7 +22,7 @@ export class ConversationsService {
     if (q) {
       const pattern = '%' + q.replace(/[\\%_]/g, '\\$&') + '%';
       const found = await this.db.select({ conversationId: message.conversationId }).from(message).where(ilike(message.content, pattern)).limit(500);
-      const ids = [...new Set(found.map((r: {conversationId:string}) => r.conversationId))];
+      const ids: string[] = found.map((r: {conversationId:string}) => r.conversationId);
       filters.push(or(ilike(conversation.title, pattern), ids.length ? inArray(conversation.id, ids) : eq(conversation.id, '__no_match__'))!);
     }
     const cursor = decodeCursor(input.cursor);
