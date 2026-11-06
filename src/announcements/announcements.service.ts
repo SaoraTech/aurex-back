@@ -19,7 +19,7 @@ export class AnnouncementsService {
 
   async create(dto: CreateAnnouncementDto, creatorId?: string, _isAdmin = false) {
     const mode = dto.publicationMode ?? 'IN_APP_ONLY';
-    const channels = dto.notificationChannels ?? [];
+    const channels = [...new Set(dto.notificationChannels ?? [])];
 
     if (mode === 'MULTI_CHANNEL' && channels.length === 0) {
       throw badRequest('NOTIFICATION_CHANNEL_REQUIRED', 'Sélectionnez au moins un canal Push ou Email.');
@@ -75,13 +75,13 @@ export class AnnouncementsService {
     const scheduledDeliveryMode = dto.scheduledDeliveryMode === undefined
       ? existing.scheduledDeliveryMode
       : dto.scheduledDeliveryMode;
-    const channels = dto.notificationChannels ?? existing.notificationChannels ?? [];
+    const channels = [...new Set(dto.notificationChannels ?? existing.notificationChannels ?? [])];
 
     if (mode === 'MULTI_CHANNEL' && channels.length === 0) {
       throw badRequest('NOTIFICATION_CHANNEL_REQUIRED', 'Sélectionnez au moins un canal Push ou Email.');
     }
     if (mode === 'SCHEDULED') {
-      if (!scheduledAt || scheduledAt <= new Date()) {
+      if (!scheduledAt || !Number.isFinite(scheduledAt.getTime()) || scheduledAt <= new Date()) {
         throw badRequest('INVALID_SCHEDULED_AT', 'La date de programmation doit être une date future valide.');
       }
       if (!scheduledDeliveryMode) {
