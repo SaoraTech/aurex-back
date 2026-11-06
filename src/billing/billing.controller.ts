@@ -21,6 +21,10 @@ class CheckoutDto {
   plan!: 'plus' | 'pro' | 'plus_promo' | 'pro_promo';
 
   @IsOptional()
+  @IsIn(['jemenipay', 'dodo_payments'])
+  provider?: 'jemenipay' | 'dodo_payments';
+
+  @IsOptional()
   @IsIn(['orange_money_mali', 'moov_africa_mali', 'card'])
   paymentMethod?: PaymentMethodType;
 
@@ -45,9 +49,10 @@ export class BillingController {
     return this.billing.checkout(
       userId,
       dto.plan,
-      dto.paymentMethod ?? 'orange_money_mali',
+      dto.paymentMethod ?? (dto.provider === 'dodo_payments' ? 'card' : 'orange_money_mali'),
       dto.returnUrl,
       idempotencyKey,
+      dto.provider ?? 'jemenipay',
     );
   }
 

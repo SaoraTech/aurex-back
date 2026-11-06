@@ -93,3 +93,7 @@ The backend web service does not run an in-process timer. Until this external Cr
 ## Novu editorial workflow configuration
 
 Novu subscribers are synchronized when the authenticated client requests its subscriber token or updates notification preferences. Each subscriber is assigned to the `announcements:all` topic and receives a server-managed `subscriber.data.plan` value (`free`, `plus`, or `pro`). The topic subscription filters the existing `aurex-announcement` workflow by `payload.targetAudience`. The workflow must honor `payload.channels` and the subscriber's `editorialEmailEnabled` / `editorialPushEnabled` data before sending each external channel. Workflow publication and email/push integrations remain Novu workspace configuration tasks; backend code does not fabricate those settings.
+
+### Billing provider selection
+
+Existing clients that omit `provider` continue to use Jɛmɛnipay. Web/Desktop clients may explicitly send `provider: "dodo_payments"`. Dodo product IDs must be configured in the provider dashboard and mapped through the DODO_PRODUCT_* environment variables; the backend does not create products or invent their prices.

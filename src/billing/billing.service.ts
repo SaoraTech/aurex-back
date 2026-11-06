@@ -6,7 +6,8 @@ import { DRIZZLE } from '../db/db.constants';
 import { payment, subscription, user } from '../db/schema';
 import { PlanName, PlansService } from '../plans/plans.service';
 import { JemenipayProvider } from './providers/jemenipay.provider';
-import { PaymentMethodType } from './providers/payment-provider.interface';
+import { DodoPaymentsProvider } from './providers/dodo-payments.provider';
+import { PaymentMethodType, PaymentProviderName } from './providers/payment-provider.interface';
 
 @Injectable()
 export class BillingService {
@@ -16,6 +17,7 @@ export class BillingService {
     private readonly jemenipay: JemenipayProvider,
     private readonly plans: PlansService,
     @Optional() @Inject(DRIZZLE) private readonly db?: any,
+    @Optional() private readonly dodo?: DodoPaymentsProvider,
   ) {}
 
   async checkout(
@@ -24,6 +26,7 @@ export class BillingService {
     paymentMethod: PaymentMethodType = 'orange_money_mali',
     returnUrl?: string,
     idempotencyKey?: string,
+    providerName: 'jemenipay' | 'dodo_payments' = 'jemenipay',
   ) {
     const prices = this.plans.getPrices();
     const amount = prices[plan];
@@ -47,7 +50,7 @@ export class BillingService {
           return {
             paymentId: existing.providerReference ?? existing.id,
             checkoutUrl: existing.checkoutUrl,
-            provider: 'jemenipay',
+            provider: existing.provider,
             status: existing.status === 'succeeded' ? 'succeeded' : 'pending',
           };
         }
@@ -70,11 +73,16 @@ export class BillingService {
     }
     const email = usr.email;
 
-    // 3. Verify provider configuration
-    if (!this.jemenipay.isConfigured()) {
+    // 3. Verify the selected provider configuration without changing the legacy Jɛmɛnipay default.
+    const providerConfigured = providerName === 'dodo_payments'
+      ? Boolean(this.dodo?.isConfiguredForPlan(plan))
+      : this.jemenipay.isConfigured();
+    if (!providerConfigured) {
       throw serviceUnavailable(
         'PAYMENT_SERVICE_NOT_CONFIGURED',
-        'Le service de paiement Jɛmɛnipay n’est pas configuré sur ce serveur.',
+        providerName === 'dodo_payments'
+          ? 'Le service Dodo Payments ou le produit correspondant n’est pas configuré sur ce serveur.'
+          : 'Le service de paiement Jɛmɛnipay n’est pas configuré sur ce serveur.',
       );
     }
 
@@ -86,7 +94,7 @@ export class BillingService {
       await this.db.insert(payment).values({
         id: localPaymentId,
         userId,
-        provider: 'jemenipay',
+        provider: providerName,
         idempotencyKey: finalIdempotencyKey,
         amountMinor: amount,
         currency: 'XOF',
@@ -122,15 +130,15 @@ export class BillingService {
 
     // 5. Perform real checkout initiation via Jemenipay Provider
     try {
-      const checkoutRes = await this.jemenipay.initiateCheckout({
-        userId,
-        email,
-        plan,
-        amount,
-        currency: 'XOF',
-        paymentMethod,
-        returnUrl,
-      });
+      const checkoutRes = providerName === 'dodo_payments'
+        ? await this.dodo!.initiateCheckout({
+            userId, email, plan, amount, currency: 'XOF', paymentMethod: 'card', returnUrl,
+            localPaymentId, idempotencyKey: finalIdempotencyKey,
+          })
+        : await this.jemenipay.initiateCheckout({
+            userId, email, plan, amount, currency: 'XOF', paymentMethod, returnUrl,
+            localPaymentId, idempotencyKey: finalIdempotencyKey,
+          });
 
       if (!checkoutRes?.paymentId || !checkoutRes?.checkoutUrl) {
         throw new Error('Réponse Jɛmɛnipay incomplète (paymentId ou checkoutUrl manquant).');
@@ -150,11 +158,11 @@ export class BillingService {
       return {
         paymentId: checkoutRes.paymentId,
         checkoutUrl: checkoutRes.checkoutUrl,
-        provider: 'jemenipay',
+        provider: providerName,
         status: 'pending',
       };
     } catch (err: any) {
-      this.logger.error(`Jemenipay checkout failed for user ${userId}: ${err.message}`);
+      this.logger.error(`${providerName} checkout failed for user ${userId}: ${err.message}`);
       await this.db
         .update(payment)
         .set({
