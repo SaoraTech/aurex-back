@@ -165,7 +165,18 @@ export class ChatService {
     }
 
     let partialText = '';
+    const generationId = input.requestId ?? correlationId;
+    const generationKey = generationId ? userId + ':' + generationId : undefined;
+    let abortController: AbortController | undefined;
+    const abortFromClient = () => abortController?.abort();
     try {
+      if (generationKey && this.activeGenerations.has(generationKey)) {
+        throw conflict('REQUEST_IN_PROGRESS', 'Cette génération est déjà en cours.');
+      }
+      abortController = new AbortController();
+      if (streamOptions?.signal?.aborted) abortController.abort();
+      else streamOptions?.signal?.addEventListener('abort', abortFromClient, { once: true });
+      if (generationKey) this.activeGenerations.set(generationKey, abortController);
       // 3. Load conversation history & pinned memories
       const rows = await this.db
         .select()
@@ -312,32 +323,16 @@ INSTRUCTION STRICTE : Le moteur SageMath n'a pas pu vérifier ce calcul exact ($
       }
 
       // 7. Call Groq LLM
-      const generationId = input.requestId ?? correlationId;
-      const generationKey = generationId ? userId + ':' + generationId : undefined;
-      if (generationKey && this.activeGenerations.has(generationKey)) {
-        throw conflict('REQUEST_IN_PROGRESS', 'Cette génération est déjà en cours.');
-      }
-      const abortController = new AbortController();
-      const abortFromClient = () => abortController.abort();
-      if (streamOptions?.signal?.aborted) abortController.abort();
-      else streamOptions?.signal?.addEventListener('abort', abortFromClient, { once: true });
-      if (generationKey) this.activeGenerations.set(generationKey, abortController);
-      let result: any;
-      try {
-        result = await this.ai.generate(plan, history, input.model, {
-          systemInstruction,
-          signal: abortController.signal,
-          ...(streamOptions?.onToken ? {
-            onToken: (delta: string) => {
-              partialText += delta;
-              streamOptions.onToken?.(delta);
-            },
-          } : {}),
-        });
-      } finally {
-        if (generationKey) this.activeGenerations.delete(generationKey);
-        streamOptions?.signal?.removeEventListener('abort', abortFromClient);
-      }
+      const result = await this.ai.generate(plan, history, input.model, {
+        systemInstruction,
+        signal: abortController!.signal,
+        ...(streamOptions?.onToken ? {
+          onToken: (delta: string) => {
+            partialText += delta;
+            streamOptions.onToken?.(delta);
+          },
+        } : {}),
+      });
 
       // 8. Commit reserved message quota slot (only on successful completion!)
       await this.quotas.commitQuota(opId);
@@ -437,6 +432,11 @@ INSTRUCTION STRICTE : Le moteur SageMath n'a pas pu vérifier ce calcul exact ($
       }
       await this.quotas.compensateQuota(opId);
       throw err;
+    } finally {
+      if (generationKey && abortController && this.activeGenerations.get(generationKey) === abortController) {
+        this.activeGenerations.delete(generationKey);
+      }
+      streamOptions?.signal?.removeEventListener('abort', abortFromClient);
     }
   }
 }
