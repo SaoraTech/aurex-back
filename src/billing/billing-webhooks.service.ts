@@ -346,14 +346,18 @@ export class BillingWebhooksService {
     const ids = this.revenueCat.getEntitlementIds();
     const now = new Date();
 
-    const isActive = (entry: any) => {
-      if (!entry) return false;
+    const getEffectiveExpiry = (entry: any): Date | null => {
+      if (!entry) return null;
       const expirations = [entry.expires_date, entry.grace_period_expires_date]
         .filter(Boolean)
         .map((value: string) => new Date(value))
         .filter((value: Date) => Number.isFinite(value.getTime()));
-      if (expirations.length === 0) return true;
-      return Math.max(...expirations.map((value: Date) => value.getTime())) > now.getTime();
+      if (expirations.length === 0) return null;
+      return new Date(Math.max(...expirations.map((value: Date) => value.getTime())));
+    };
+    const isActive = (entry: any) => {
+      const expiry = getEffectiveExpiry(entry);
+      return !entry || !expiry || expiry > now;
     };
 
     const sourceIds = [...new Set(event.transferredFrom ?? [])];
@@ -400,7 +404,7 @@ export class BillingWebhooksService {
       }
 
       const periodStart = this.toDate(entitlement.purchase_date) ?? now;
-      const periodEnd = this.toDate(entitlement.expires_date) ?? this.toDate(entitlement.grace_period_expires_date);
+      const periodEnd = getEffectiveExpiry(entitlement);
       const providerSubscriptionId = String(customer.original_app_user_id ?? match.appUserId);
       await this.upsertSubscription({
         userId: match.userId,
