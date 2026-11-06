@@ -10,7 +10,7 @@ import { PlanName, PlansService } from '../plans/plans.service';
 import { QuotasService } from '../quotas/quotas.service';
 import { Optional } from '@nestjs/common';
 import { renderWebBlock, normalizeUrl, shouldSearchWeb, stripUnknownCitations, WEB_TAG } from './prompt-safety';
-import { TavilyService } from './tavily.service';
+import { BraveSearchService } from './brave-search.service';
 import { WebBundle, WebSearchSummary, WebSource } from './research.types';
 
 const PlanSchema = z.object({ queries: z.array(z.string().min(3).max(200)).min(1).max(8) });
@@ -19,19 +19,19 @@ const PlanSchema = z.object({ queries: z.array(z.string().min(3).max(200)).min(1
 export class WebResearchService {
   private readonly logger = new Logger(WebResearchService.name);
   constructor(
-    private readonly tavily: TavilyService, private readonly ai: AiOrchestratorService, private readonly identity: IdentityService,
+    private readonly brave: BraveSearchService, private readonly ai: AiOrchestratorService, private readonly identity: IdentityService,
     private readonly plans: PlansService, private readonly usage: UsageService, private readonly config: ConfigService,
     @Optional() private readonly quotas?: QuotasService,
   ) {}
 
-  isAvailable() { return this.tavily.isConfigured(); }
+  isAvailable() { return this.brave.isConfigured(); }
 
   /** Plain search, no LLM. Counts against the daily web-search quota. */
   async search(userId: string, input: { query: string; topic?: 'general' | 'news'; timeRange?: 'day' | 'week' | 'month' | 'year' }, requestId?: string) {
     await this.assertQuota(userId, 'web_search', 1, 'dailyWebSearches');
-    const bundle = await this.gather(userId, [input.query], { topic: input.topic, timeRange: input.timeRange }, 5, 0, requestId);
+    const bundle = await this.gather(userId, [input.query], { topic: input.topic, timeRange: input.timeRange }, 5, requestId);
     if (bundle.failureCode) throw new AppException(503, bundle.failureCode, 'La recherche web est indisponible.');
-    return { queries: bundle.queries, sources: bundle.sources.map(({ extract, ...s }) => s), coverage: bundle.coverage };
+    return { queries: bundle.queries, sources: bundle.sources, coverage: bundle.coverage };
   }
 
   /**
@@ -61,9 +61,8 @@ export class WebResearchService {
     const ceiling = this.config.get<number>('researchMaxSearches') ?? 5;
     const maxSearches = Math.min(deep ? ceiling : Math.min(3, ceiling), ceiling);
     const queries = await this.planQueries(plan, input.question, maxSearches);
-    const maxExtracts = deep ? this.config.get<number>('researchMaxExtracts') ?? 3 : 0;
-    const bundle = await this.gather(userId, queries, {}, deep ? 8 : 5, maxExtracts, requestId, deadline);
-    await this.usage.record({ userId, kind: 'deep_research', provider: 'tavily', units: 1, outcome: bundle.failureCode ? 'error' : 'ok', requestId });
+    const bundle = await this.gather(userId, queries, {}, deep ? 8 : 5, requestId, deadline);
+    await this.usage.record({ userId, kind: 'deep_research', provider: 'brave_search', units: 1, outcome: bundle.failureCode ? 'error' : 'ok', requestId });
     // Never synthesise "verified" answers without real results.
     if (bundle.failureCode || !bundle.sources.length) throw new AppException(503, bundle.failureCode ?? 'WEB_SEARCH_NO_RESULTS', "Aucune source web n'a pu être obtenue ; aucune réponse vérifiée par le Web ne peut être produite.");
 
@@ -76,7 +75,7 @@ export class WebResearchService {
     const { text, cited } = stripUnknownCitations(generated.text, new Set(bundle.sources.map(s => s.id)));
     return {
       answer: text, provider: generated.provider, model: generated.model, 
-      sources: bundle.sources.map(({ extract, snippet, ...s }) => ({ ...s, cited: cited.includes(s.id) })),
+      sources: bundle.sources.map(({ snippet, ...s }) => ({ ...s, cited: cited.includes(s.id) })),
       queries: bundle.queries, coverage: bundle.coverage,
       notes: bundle.coverage.queriesFailed || bundle.coverage.extractionsFailed || bundle.coverage.truncated ? 'Couverture partielle : certaines recherches ou extractions ont échoué ou ont été limitées.' : undefined,
     };
@@ -98,7 +97,7 @@ export class WebResearchService {
     }
   }
 
-  private async gather(userId: string, queries: string[], opts: { topic?: 'general' | 'news'; timeRange?: 'day' | 'week' | 'month' | 'year' }, maxSources: number, maxExtracts: number, requestId?: string, deadline = Date.now() + 30000): Promise<WebBundle> {
+  private async gather(userId: string, queries: string[], opts: { topic?: 'general' | 'news'; timeRange?: 'day' | 'week' | 'month' | 'year' }, maxSources: number, requestId?: string, deadline = Date.now() + 30000): Promise<WebBundle> {
     const coverage = { queriesPlanned: queries.length, queriesSucceeded: 0, queriesFailed: 0, extractionsFailed: 0, truncated: false };
     const merged = new Map<string, { hit: { url: string; title: string; content: string; score?: number; publishedDate?: string }; score: number }>();
     let lastFailure: string | undefined;
@@ -116,10 +115,10 @@ export class WebResearchService {
         }
       } catch (error) {
         coverage.queriesFailed++;
-        const err = error instanceof ProviderError ? error : new ProviderError('tavily', 'unavailable', 'unexpected');
+        const err = error instanceof ProviderError ? error : new ProviderError('brave_search', 'unavailable', 'unexpected');
         lastFailure = err.kind === 'quota' ? 'WEB_SEARCH_QUOTA_EXCEEDED' : err.kind === 'not_configured' ? 'WEB_SEARCH_NOT_CONFIGURED' : 'WEB_SEARCH_UNAVAILABLE';
         await this.usage.record({ userId, kind: 'web_search', provider: 'tavily', units: 0, latencyMs: Date.now() - started, outcome: err.kind, requestId });
-        this.logger.warn({ msg: 'tavily_search_failed', kind: err.kind });
+        this.logger.warn({ msg: 'brave_search_failed', kind: err.kind });
       }
     }
     const ranked = [...merged.values()].sort((a, b) => b.score - a.score);
