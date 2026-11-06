@@ -37,6 +37,7 @@ export class BillingService {
     }
 
     // 1. Idempotency: if the client supplied a key and a transaction already exists, return it.
+    let terminalPaymentToRotate: string | undefined;
     if (idempotencyKey && this.db) {
       const [existing] = await this.db
         .select()
@@ -48,18 +49,7 @@ export class BillingService {
         if (existing.status === 'failed' || existing.status === 'cancelled' || existing.status === 'refunded') {
           // Rotate the terminal attempt away from the client key so a fresh local
           // payment row can safely claim that same client idempotency key.
-          await this.db.update(payment).set({
-            idempotencyKey: `${idempotencyKey}:closed:${existing.id}`,
-            updatedAt: new Date(),
-          }).where(and(
-            eq(payment.id, existing.id),
-            eq(payment.idempotencyKey, idempotencyKey),
-            or(
-              eq(payment.status, 'failed'),
-              eq(payment.status, 'cancelled'),
-              eq(payment.status, 'refunded'),
-            ),
-          ));
+          terminalPaymentToRotate = existing.id;
         } else {
           this.logger.log(`Returning existing payment ${existing.id} for idempotency key ${idempotencyKey}`);
           return {
@@ -106,18 +96,40 @@ export class BillingService {
     const finalIdempotencyKey = idempotencyKey ?? `idem_${localPaymentId}`;
 
     try {
-      await this.db.insert(payment).values({
-        id: localPaymentId,
-        userId,
-        provider: providerName,
-        idempotencyKey: finalIdempotencyKey,
-        amountMinor: amount,
-        currency: 'XOF',
-        plan,
-        status: 'pending',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
+      const createPayment = async (executor: any) => {
+        if (terminalPaymentToRotate && idempotencyKey) {
+          await executor.update(payment).set({
+            idempotencyKey: `${idempotencyKey}:closed:${terminalPaymentToRotate}`,
+            updatedAt: new Date(),
+          }).where(and(
+            eq(payment.id, terminalPaymentToRotate),
+            eq(payment.idempotencyKey, idempotencyKey),
+            or(
+              eq(payment.status, 'failed'),
+              eq(payment.status, 'cancelled'),
+              eq(payment.status, 'refunded'),
+            ),
+          ));
+        }
+        await executor.insert(payment).values({
+          id: localPaymentId,
+          userId,
+          provider: providerName,
+          idempotencyKey: finalIdempotencyKey,
+          amountMinor: amount,
+          currency: 'XOF',
+          plan,
+          status: 'pending',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+      };
+
+      if (typeof this.db.transaction === 'function') {
+        await this.db.transaction((tx: any) => createPayment(tx));
+      } else {
+        await createPayment(this.db);
+      }
     } catch (err: any) {
       // Race: another concurrent checkout request already created this payment
       const isUniqueConflict =
