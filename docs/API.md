@@ -98,11 +98,15 @@ Announcements with `publicationMode: "SCHEDULED"` are persisted with a due time 
 - Command: `npm run jobs:publish-announcements`
 - Schedule: every minute (`* * * * *`)
 
-The backend web service does not run an in-process timer. Until this external Cron Job is configured and enabled, scheduled records remain queued and are not automatically published. The job is idempotent and can safely be retried.
+The backend web service does not run an in-process timer. Until this external Cron Job is configured and enabled, scheduled records remain queued and are not automatically published. The same job also retries failed or interrupted editorial notification outbox records. Publication claims are conditional and notification retries use stable delivery IDs and a deterministic Novu transaction ID.
 
 ## Novu editorial workflow configuration
 
-Novu subscribers are synchronized when the authenticated client requests its subscriber token or updates notification preferences. Each subscriber is assigned to the `announcements:all` topic and receives a server-managed `subscriber.data.plan` value (`free`, `plus`, or `pro`). The topic subscription filters the existing `aurex-announcement` workflow by `payload.targetAudience`. The workflow must honor `payload.channels` and the subscriber's `editorialEmailEnabled` / `editorialPushEnabled` data before sending each external channel. Workflow publication and email/push integrations remain Novu workspace configuration tasks; backend code does not fabricate those settings.
+Novu subscribers are synchronized when the authenticated client requests its subscriber token or updates notification preferences. Each subscriber is assigned to the global `announcements:all` topic and exactly one plan topic: `announcements:free`, `announcements:plus`, or `announcements:pro`. When a subscriber's commercial tier changes, the backend adds the new plan-topic membership and removes stale plan-topic memberships using Novu's documented topic-subscription endpoints.
+
+The backend triggers `aurex-announcement` against the topic matching the publication audience: `announcements:all` or the exact plan topic. It does not rely on undocumented subscriber/payload filter variables. Subscriber data is synchronized with the server-resolved plan and editorial/transactional channel preferences. The Novu workflow must honor `payload.channels`, `subscriber.data.editorialEmailEnabled`, and `subscriber.data.editorialPushEnabled` before sending each external channel.
+
+Workflow publication and Email/Push provider integrations remain Novu workspace configuration tasks; backend code does not fabricate those settings. A `notification_delivery.status = triggered` record means Novu accepted the workflow trigger, not that a device or mailbox confirmed delivery. Failed and interrupted dispatches are stored in a durable outbox and retried by the scheduled job up to five attempts.
 
 ### Billing provider selection
 
