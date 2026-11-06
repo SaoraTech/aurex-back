@@ -156,7 +156,7 @@ export class BillingService {
           });
 
       if (!checkoutRes?.paymentId || !checkoutRes?.checkoutUrl) {
-        throw new Error('Réponse Jɛmɛnipay incomplète (paymentId ou checkoutUrl manquant).');
+        throw new Error(`Réponse ${providerName} incomplète (paymentId ou checkoutUrl manquant).`);
       }
 
       // 6. Update local record with provider reference and checkout URL
