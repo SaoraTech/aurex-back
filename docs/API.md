@@ -9,6 +9,7 @@ Base path: /api/v1. Better Auth routes are mounted under /api/auth/*.
 | GET | /plans | Plan display | No |
 | GET | /entitlements/me | Authenticated user's effective plan, subscription status and quotas | Yes |
 | GET | /admin/dashboard | Admin dashboard totals and recent audit activity | Admin |
+| GET | /admin/audit-events | Paginated admin audit history; supports action, actorUserId and targetType filters | Admin |
 | GET | /admin/publications | Admin publication list | Admin |
 | POST | /announcements | Create a publication (admin only) | Admin |
 | PATCH | /announcements/:id | Update a draft or scheduled publication (admin only) | Admin |
