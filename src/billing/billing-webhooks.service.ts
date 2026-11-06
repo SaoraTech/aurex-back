@@ -130,6 +130,11 @@ export class BillingWebhooksService {
           : undefined;
 
       if (!retryCondition) {
+        if (existing?.status === 'processing') {
+          // Do not acknowledge an event that is still being processed: a provider
+          // retry is the recovery path if the worker crashes before completion.
+          throw badGateway('BILLING_WEBHOOK_IN_PROGRESS', 'Un événement identique est déjà en cours de traitement. Réessayez ultérieurement.');
+        }
         return { received: true, duplicate: true, status: existing?.status ?? 'processing' };
       }
 
