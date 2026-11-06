@@ -1,15 +1,19 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { and, eq, sql } from 'drizzle-orm';
 import { DRIZZLE } from '../db/db.constants';
 import { subscription } from '../db/schema';
 import { newId } from '../common/ids';
 import { PlanName, PlansService } from '../plans/plans.service';
+import { NotificationSubscribersService } from '../notifications/notification-subscribers.service';
 
 @Injectable()
 export class EntitlementsService {
+  private readonly logger = new Logger(EntitlementsService.name);
+
   constructor(
     private readonly plans: PlansService,
     @Inject(DRIZZLE) private readonly db?: any,
+    @Optional() private readonly notificationSubscribers?: NotificationSubscribersService,
   ) {}
 
   async getForUser(userId: string) {
@@ -41,7 +45,9 @@ export class EntitlementsService {
     cancelAtPeriodEnd: boolean;
   }, executor?: any) {
     if (!executor && this.db?.transaction) {
-      return this.db.transaction((tx: any) => this.activateSubscription(input, tx));
+      const result = await this.db.transaction((tx: any) => this.activateSubscription(input, tx));
+      await this.syncNotificationMembership(input.userId);
+      return result;
     }
     const db = executor ?? this.db;
     if (!db) throw new Error('Entitlements database is unavailable');
@@ -104,6 +110,16 @@ export class EntitlementsService {
       eq(subscription.provider, provider),
       eq(subscription.status, 'active'),
     ));
+    await this.syncNotificationMembership(userId);
+  }
+
+  async syncNotificationMembership(userId: string) {
+    if (!this.notificationSubscribers) return;
+    try {
+      await this.notificationSubscribers.sync(userId);
+    } catch (error) {
+      this.logger.warn(`Novu membership sync failed for user ${userId}: ${(error as Error).message}`);
+    }
   }
 
 }
