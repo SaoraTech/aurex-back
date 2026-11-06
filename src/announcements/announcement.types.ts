@@ -1,7 +1,9 @@
-export type PublicationMode = 'manual' | 'automatic' | 'hybrid';
-export type AnnouncementStatus = 'draft' | 'pending_review' | 'published' | 'archived';
+export type PublicationMode = 'IN_APP_ONLY' | 'MULTI_CHANNEL' | 'SCHEDULED';
+export type ScheduledDeliveryMode = 'IN_APP_ONLY' | 'MULTI_CHANNEL';
+export type AnnouncementStatus = 'draft' | 'pending_review' | 'scheduled' | 'published' | 'archived';
 export type TargetAudience = 'all' | 'free' | 'plus' | 'pro';
 export type AnnouncementCategory = 'feature' | 'improvement' | 'ai_engine' | 'subscription' | 'maintenance';
+export type NotificationChannel = 'push' | 'email';
 
 export interface CreateAnnouncementDto {
   title: string;
@@ -11,7 +13,9 @@ export interface CreateAnnouncementDto {
   targetAudience?: TargetAudience;
   link?: string;
   publicationMode?: PublicationMode;
-  autoPublish?: boolean;
+  scheduledAt?: string;
+  scheduledDeliveryMode?: ScheduledDeliveryMode;
+  notificationChannels?: NotificationChannel[];
 }
 
 export interface UpdateAnnouncementDto {
@@ -21,8 +25,8 @@ export interface UpdateAnnouncementDto {
   category?: AnnouncementCategory;
   targetAudience?: TargetAudience;
   link?: string;
-}
-
-export interface PublishAnnouncementOptions {
-  sendNotification?: boolean;
+  publicationMode?: PublicationMode;
+  scheduledAt?: string | null;
+  scheduledDeliveryMode?: ScheduledDeliveryMode | null;
+  notificationChannels?: NotificationChannel[];
 }

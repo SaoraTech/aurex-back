@@ -1,4 +1,5 @@
 export type PaymentMethodType = 'orange_money_mali' | 'moov_africa_mali' | 'card';
+export type PaymentProviderName = 'jemenipay' | 'dodo_payments' | 'revenuecat' | 'huawei_iap';
 
 export interface CheckoutRequest {
   userId: string;
@@ -9,13 +10,15 @@ export interface CheckoutRequest {
   paymentMethod: PaymentMethodType;
   returnUrl?: string;
   cancelUrl?: string;
+  localPaymentId?: string;
+  idempotencyKey?: string;
 }
 
 export interface CheckoutResponse {
   paymentId: string;
   checkoutUrl?: string;
   qrCode?: string;
-  provider: 'jemenipay';
+  provider: PaymentProviderName;
   status: 'pending' | 'success' | 'failed';
 }
 
@@ -26,11 +29,12 @@ export interface WebhookVerificationResult {
   status: 'success' | 'failed' | 'pending';
   amount: number;
   currency: string;
+  eventId?: string;
   metadata?: Record<string, any>;
 }
 
 export interface PaymentProvider {
-  readonly providerName: 'jemenipay';
+  readonly providerName: PaymentProviderName;
   isConfigured(): boolean;
   initiateCheckout(request: CheckoutRequest): Promise<CheckoutResponse>;
   verifyWebhook(payload: Buffer | string, signature: string, timestamp?: string): Promise<WebhookVerificationResult>;

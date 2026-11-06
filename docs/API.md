@@ -7,6 +7,25 @@ Base path: /api/v1. Better Auth routes are mounted under /api/auth/*.
 | GET | /health | Liveness | No |
 | GET | /health/ready | PostgreSQL readiness | No |
 | GET | /plans | Plan display | No |
+| GET | /entitlements/me | Authenticated user's effective plan, subscription status and quotas | Yes |
+| GET | /admin/dashboard | Admin dashboard totals and recent audit activity | Admin |
+| GET | /admin/audit-events | Paginated admin audit history; supports action, actorUserId and targetType filters | Admin |
+
+Admin audit history records publication creation, edits and publication actions with the authenticated administrator as actor. Audit metadata excludes publication text and credentials. Audit persistence errors are logged without rolling back an already completed publication action.
+| GET | /admin/publications | Admin publication list | Admin |
+| POST | /announcements | Create a publication (admin only) | Admin |
+| PATCH | /announcements/:id | Update a draft or scheduled publication (admin only) | Admin |
+| POST | /announcements/:id/publish | Publish immediately or execute a scheduled publication (admin only) | Admin |
+| GET | /announcements | List published in-app announcements | Optional |
+| POST | /announcements/:id/read | Mark an announcement as read | Yes |
+| GET | /announcements/unread-count | Current user's unread announcement count | Yes |
+| GET | /admin/billing/payments | Admin payment list | Admin |
+| GET | /admin/billing/subscriptions | Admin subscription list | Admin |
+| GET | /admin/settings | Safe integration configuration status (no secrets) | Admin |
+| GET | /admin/notifications/deliveries | Notification dispatch history and status | Admin |
+| GET | /admin/notifications/summary | Notification dispatch counts by category, channel and status | Admin |
+| GET | /notifications/preferences | Current editorial and transactional channel preferences | Yes |
+| PATCH | /notifications/preferences | Update editorial and transactional channel preferences | Yes |
 | GET/POST | /conversations | List/create conversations | Yes |
 | GET | /conversations/:id/messages | List messages owned by user | Yes |
 | DELETE | /conversations/:id | Delete owned conversation | Yes |
@@ -71,3 +90,30 @@ Both routes require authentication and are protected by the tts / stt security p
 ~~~
 
 Clients should use the stable code field rather than matching localized messages. Rate-limit responses may include Retry-After. Never send authoritative plan, price or provider configuration from the client.
+
+## Scheduled publications
+
+Announcements with `publicationMode: "SCHEDULED"` are persisted with a due time and delivery mode. To execute due publications, configure a Render Cron Job for this service with:
+
+- Command: `npm run jobs:publish-announcements`
+- Schedule: every minute (`* * * * *`)
+
+The backend web service does not run an in-process timer. Until this external Cron Job is configured and enabled, scheduled records remain queued and are not automatically published. The same job also expires elapsed subscriptions, refreshes affected Novu audience memberships, and retries failed or interrupted editorial notification outbox records. Publication claims are conditional and notification retries use stable delivery IDs and a deterministic Novu transaction ID.
+
+## Novu editorial workflow configuration
+
+Novu subscribers are synchronized when the authenticated client requests its subscriber token or updates notification preferences. Each subscriber is attached to a global audience topic and a current-plan topic for each enabled editorial channel. Topic keys use `announcements:<audience>:<channel>`, for example `announcements:all:email` or `announcements:plus:push`. When a plan or channel preference changes, the backend adds the required memberships and removes disabled or stale memberships through Novu's documented topic-subscription endpoints.
+
+The backend triggers `aurex-announcement` separately for each selected channel, targeting the exact audience-and-channel topic and sending `payload.channel` with a single channel. This enforces editorial Email/Push preferences through topic membership rather than undocumented subscriber/payload filter variables. The Novu workflow must branch on `payload.channel` and execute only the matching Email or Push step. Subscriber data also carries server-resolved plan and editorial/transactional preferences; transactional workflows must honor `subscriber.data.transactionalEmailEnabled` and `subscriber.data.transactionalPushEnabled`.
+
+Workflow publication and Email/Push provider integrations remain Novu workspace configuration tasks; backend code does not fabricate those settings. A `notification_delivery.status = triggered` record means Novu accepted the workflow trigger, not that a device or mailbox confirmed delivery. Failed and interrupted dispatches are stored in a durable outbox and retried by the scheduled job up to five attempts.
+
+### Billing provider selection
+
+Existing clients that omit `provider` continue to use Jɛmɛnipay. Web/Desktop clients may explicitly send `provider: "dodo_payments"`. Dodo product IDs must be configured in the provider dashboard and mapped through the DODO_PRODUCT_* environment variables; the backend does not create products or invent their prices.
+
+### Store purchase verification requirements
+
+- RevenueCat webhook events are authenticated using the configured authorization header. If HMAC signing is enabled in RevenueCat, configure `REVENUECAT_WEBHOOK_SIGNING_SECRET`; the backend verifies the raw body and timestamp, then re-reads the subscriber's current entitlements from RevenueCat before updating access.
+- Huawei clients must first call `POST /api/v1/billing/huawei-iap/developer-payload` with Aurex authentication and pass the returned signed `developerPayload` to AppGallery IAP. The backend validates that payload against `HUAWEI_IAP_PAYLOAD_SECRET`, verifies the Huawei purchase-data signature and purchase token, and only then associates the subscription with the Aurex account. Raw user IDs are accepted only outside production for local development compatibility.
+- Dodo webhook signatures are verified against the raw request body and the webhook ID/timestamp headers. Provider event IDs are persisted in the idempotency ledger.

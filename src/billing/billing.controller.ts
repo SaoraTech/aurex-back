@@ -13,12 +13,19 @@ import { IsIn, IsOptional, IsString } from 'class-validator';
 import type { Request } from 'express';
 import { RequireUserGuard } from '../auth/require-user.guard';
 import { CurrentUserId } from '../common/user.decorator';
+import { serviceUnavailable } from '../common/errors';
 import { BillingService } from './billing.service';
+import { BillingWebhooksService } from './billing-webhooks.service';
+import { HuaweiIapProvider } from './providers/huawei-iap.provider';
 import { PaymentMethodType } from './providers/payment-provider.interface';
 
 class CheckoutDto {
   @IsIn(['plus', 'pro', 'plus_promo', 'pro_promo'])
   plan!: 'plus' | 'pro' | 'plus_promo' | 'pro_promo';
+
+  @IsOptional()
+  @IsIn(['jemenipay', 'dodo_payments'])
+  provider?: 'jemenipay' | 'dodo_payments';
 
   @IsOptional()
   @IsIn(['orange_money_mali', 'moov_africa_mali', 'card'])
@@ -32,7 +39,11 @@ class CheckoutDto {
 @ApiTags('billing')
 @Controller('billing')
 export class BillingController {
-  constructor(private readonly billing: BillingService) {}
+  constructor(
+    private readonly billing: BillingService,
+    private readonly webhooks: BillingWebhooksService,
+    private readonly huawei: HuaweiIapProvider,
+  ) {}
 
   @ApiBearerAuth()
   @UseGuards(RequireUserGuard)
@@ -45,10 +56,52 @@ export class BillingController {
     return this.billing.checkout(
       userId,
       dto.plan,
-      dto.paymentMethod ?? 'orange_money_mali',
+      dto.paymentMethod ?? (dto.provider === 'dodo_payments' ? 'card' : 'orange_money_mali'),
       dto.returnUrl,
       idempotencyKey,
+      dto.provider ?? 'jemenipay',
     );
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(RequireUserGuard)
+  @Post('huawei-iap/developer-payload')
+  createHuaweiDeveloperPayload(@CurrentUserId() userId: string) {
+    if (!this.huawei.isConfigured()) {
+      throw serviceUnavailable('HUAWEI_IAP_NOT_CONFIGURED', 'La vérification Huawei IAP n’est pas entièrement configurée.');
+    }
+    return { developerPayload: this.huawei.createDeveloperPayload(userId) };
+  }
+
+  @Post('webhook/dodo-payments')
+  @HttpCode(200)
+  async dodoPaymentsWebhook(
+    @Req() req: RawBodyRequest<Request>,
+    @Headers('webhook-id') webhookId?: string,
+    @Headers('webhook-timestamp') webhookTimestamp?: string,
+    @Headers('webhook-signature') webhookSignature?: string,
+  ) {
+    const raw = req.rawBody ?? Buffer.from(JSON.stringify(req.body ?? {}));
+    return this.webhooks.handleDodo(raw, { webhookId, webhookTimestamp, webhookSignature });
+  }
+
+  @Post('webhook/revenuecat')
+  @HttpCode(200)
+  async revenueCatWebhook(
+    @Req() req: RawBodyRequest<Request>,
+    @Headers('authorization') authorization?: string,
+    @Headers('x-revenuecat-webhook-signature') signature?: string,
+  ) {
+    const raw = req.rawBody ?? Buffer.from(JSON.stringify(req.body ?? {}));
+    return this.webhooks.handleRevenueCat(raw, authorization, signature);
+  }
+
+  @Post('webhook/huawei-iap')
+  @HttpCode(200)
+  async huaweiIapWebhook(@Req() req: RawBodyRequest<Request>) {
+    const raw = req.rawBody ?? Buffer.from(JSON.stringify(req.body ?? {}));
+    const result = await this.webhooks.handleHuawei(raw);
+    return { responseCode: '0', result };
   }
 
   @Post('webhook/jemenipay')

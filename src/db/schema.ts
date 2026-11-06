@@ -71,6 +71,25 @@ export const subscription = pgTable('subscription', {
   createdAt: timestamp('created_at').notNull().defaultNow(), updatedAt: timestamp('updated_at').notNull().defaultNow(),
 }, t => ({ userIdx: index('subscription_user_idx').on(t.userId), providerIdx: index('subscription_provider_idx').on(t.providerSubscriptionId) }));
 
+
+/** Idempotency ledger for verified provider webhooks. */
+export const billingWebhookEvent = pgTable('billing_webhook_event', {
+  id: text('id').primaryKey(),
+  provider: varchar('provider', { length: 30 }).notNull(),
+  providerEventId: text('provider_event_id').notNull(),
+  eventType: varchar('event_type', { length: 100 }).notNull(),
+  status: varchar('status', { length: 20 }).notNull().default('received'),
+  attempts: integer('attempts').notNull().default(0),
+  errorCode: text('error_code'),
+  receivedAt: timestamp('received_at').notNull().defaultNow(),
+  processedAt: timestamp('processed_at'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, t => ({
+  providerEventIdx: uniqueIndex('billing_webhook_provider_event_uq').on(t.provider, t.providerEventId),
+  statusIdx: index('billing_webhook_status_idx').on(t.status, t.receivedAt),
+}));
+
 export const payment = pgTable('payment', {
   id: text('id').primaryKey(), userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
   provider: text('provider').notNull(), providerReference: text('provider_reference'),
@@ -124,6 +143,10 @@ export const auditEvent = pgTable('audit_event', {
 export const notificationPreference = pgTable('notification_preference', {
   id: text('id').primaryKey(), userId: text('user_id').notNull().unique().references(() => user.id, { onDelete: 'cascade' }),
   emailEnabled: boolean('email_enabled').notNull().default(true), productEnabled: boolean('product_enabled').notNull().default(true),
+  editorialEmailEnabled: boolean('editorial_email_enabled').notNull().default(true),
+  editorialPushEnabled: boolean('editorial_push_enabled').notNull().default(true),
+  transactionalEmailEnabled: boolean('transactional_email_enabled').notNull().default(true),
+  transactionalPushEnabled: boolean('transactional_push_enabled').notNull().default(true),
   createdAt: timestamp('created_at').notNull().defaultNow(), updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
 
@@ -150,13 +173,48 @@ export const announcement = pgTable('announcement', {
   status: varchar('status', { length: 20 }).notNull().default('draft'), // draft, pending_review, published, archived
   targetAudience: varchar('target_audience', { length: 20 }).notNull().default('all'), // all, free, plus, pro
   link: text('link'),
-  publicationMode: varchar('publication_mode', { length: 20 }).notNull().default('hybrid'), // manual, automatic, hybrid
+  publicationMode: varchar('publication_mode', { length: 20 }).notNull().default('IN_APP_ONLY'), // IN_APP_ONLY, MULTI_CHANNEL, SCHEDULED
+  scheduledAt: timestamp('scheduled_at'),
+  scheduledDeliveryMode: varchar('scheduled_delivery_mode', { length: 20 }),
+  notificationChannels: jsonb('notification_channels').$type<string[]>().notNull().default(sql`'[]'::jsonb`),
   publishedAt: timestamp('published_at'),
   publishedBy: text('published_by'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 }, t => ({
   statusPubIdx: index('announcement_status_pub_idx').on(t.status, t.publishedAt),
+  scheduledIdx: index('announcement_scheduled_idx').on(t.status, t.scheduledAt),
+}));
+
+/** Per-user read state for in-app announcements. */
+export const announcementRead = pgTable('announcement_read', {
+  id: text('id').primaryKey(),
+  announcementId: text('announcement_id').notNull().references(() => announcement.id, { onDelete: 'cascade' }),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  readAt: timestamp('read_at').notNull().defaultNow(),
+}, t => ({
+  userAnnouncementIdx: uniqueIndex('announcement_read_user_uq').on(t.userId, t.announcementId),
+  userIdx: index('announcement_read_user_idx').on(t.userId, t.readAt),
+}));
+
+/** Durable record of editorial and transactional notification dispatch attempts. */
+export const notificationDelivery = pgTable('notification_delivery', {
+  id: text('id').primaryKey(),
+  announcementId: text('announcement_id').references(() => announcement.id, { onDelete: 'set null' }),
+  userId: text('user_id').references(() => user.id, { onDelete: 'set null' }),
+  category: varchar('category', { length: 20 }).notNull(), // editorial, transactional
+  channel: varchar('channel', { length: 20 }).notNull(), // in_app, push, email
+  provider: varchar('provider', { length: 30 }).notNull(),
+  providerTransactionId: text('provider_transaction_id'),
+  status: varchar('status', { length: 20 }).notNull().default('pending'),
+  errorCode: text('error_code'),
+  attemptCount: integer('attempt_count').notNull().default(0),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, t => ({
+  announcementIdx: index('notification_delivery_announcement_idx').on(t.announcementId, t.createdAt),
+  userIdx: index('notification_delivery_user_idx').on(t.userId, t.createdAt),
+  statusIdx: index('notification_delivery_status_idx').on(t.status, t.createdAt),
 }));
 
 /** Atomic quota usage tracking by time window. */

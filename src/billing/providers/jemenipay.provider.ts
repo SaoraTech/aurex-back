@@ -207,16 +207,16 @@ export class JemenipayProvider implements PaymentProvider {
 
     try {
       const data = JSON.parse(payloadStr);
-      const isSuccess =
-        data.status === 'COMPLETED' ||
-        data.status === 'SUCCESS' ||
-        data.event === 'payment.succeeded';
+      const providerStatus = String(data.status ?? data.event ?? '').toUpperCase();
+      const isSuccess = ['COMPLETED', 'SUCCESS', 'SUCCEEDED', 'PAYMENT.SUCCEEDED'].includes(providerStatus);
+      const isFailure = ['FAILED', 'FAILURE', 'CANCELLED', 'CANCELED', 'EXPIRED', 'REJECTED', 'REFUNDED', 'PAYMENT.FAILED'].includes(providerStatus);
+      const status = isSuccess ? 'success' : isFailure ? 'failed' : 'pending';
 
       return {
         valid: true,
         paymentId: data.reference ?? data.paymentId ?? data.payment_id ?? '',
         externalReference: data.transactionId ?? data.transaction_id ?? data.id,
-        status: isSuccess ? 'success' : 'failed',
+        status,
         amount: Number(data.amount ?? 0),
         currency: data.currency ?? 'XOF',
         metadata: data.metadata ?? {},

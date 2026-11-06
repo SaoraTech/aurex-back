@@ -6,6 +6,8 @@ import { DRIZZLE } from '../db/db.constants';
 import { payment, subscription, user } from '../db/schema';
 import { PlanName, PlansService } from '../plans/plans.service';
 import { JemenipayProvider } from './providers/jemenipay.provider';
+import { DodoPaymentsProvider } from './providers/dodo-payments.provider';
+import { EntitlementsService } from '../entitlements/entitlements.service';
 import { PaymentMethodType } from './providers/payment-provider.interface';
 
 @Injectable()
@@ -16,6 +18,8 @@ export class BillingService {
     private readonly jemenipay: JemenipayProvider,
     private readonly plans: PlansService,
     @Optional() @Inject(DRIZZLE) private readonly db?: any,
+    @Optional() private readonly dodo?: DodoPaymentsProvider,
+    @Optional() private readonly entitlements?: EntitlementsService,
   ) {}
 
   async checkout(
@@ -24,6 +28,7 @@ export class BillingService {
     paymentMethod: PaymentMethodType = 'orange_money_mali',
     returnUrl?: string,
     idempotencyKey?: string,
+    providerName: 'jemenipay' | 'dodo_payments' = 'jemenipay',
   ) {
     const prices = this.plans.getPrices();
     const amount = prices[plan];
@@ -32,22 +37,32 @@ export class BillingService {
     }
 
     // 1. Idempotency: if the client supplied a key and a transaction already exists, return it.
+    let terminalPaymentToRotate: { id: string; idempotencyKey: string } | undefined;
     if (idempotencyKey && this.db) {
       const [existing] = await this.db
         .select()
         .from(payment)
-        .where(and(eq(payment.userId, userId), eq(payment.idempotencyKey, idempotencyKey)))
+        .where(and(
+          eq(payment.userId, userId),
+          eq(payment.provider, providerName),
+          or(
+            eq(payment.idempotencyKey, idempotencyKey),
+            eq(payment.idempotencyKey, `${providerName}:${idempotencyKey}`),
+          ),
+        ))
         .limit(1);
 
       if (existing) {
         if (existing.status === 'failed' || existing.status === 'cancelled' || existing.status === 'refunded') {
-          // Allow a fresh attempt for a definitively failed/cancelled transaction by continuing.
+          // Rotate the terminal attempt away from the client key so a fresh local
+          // payment row can safely claim that same client idempotency key.
+          terminalPaymentToRotate = { id: existing.id, idempotencyKey: existing.idempotencyKey };
         } else {
           this.logger.log(`Returning existing payment ${existing.id} for idempotency key ${idempotencyKey}`);
           return {
             paymentId: existing.providerReference ?? existing.id,
             checkoutUrl: existing.checkoutUrl,
-            provider: 'jemenipay',
+            provider: existing.provider,
             status: existing.status === 'succeeded' ? 'succeeded' : 'pending',
           };
         }
@@ -70,31 +85,58 @@ export class BillingService {
     }
     const email = usr.email;
 
-    // 3. Verify provider configuration
-    if (!this.jemenipay.isConfigured()) {
+    // 3. Verify the selected provider configuration without changing the legacy Jɛmɛnipay default.
+    const providerConfigured = providerName === 'dodo_payments'
+      ? Boolean(this.dodo?.isConfiguredForPlan(plan))
+      : this.jemenipay.isConfigured();
+    if (!providerConfigured) {
       throw serviceUnavailable(
         'PAYMENT_SERVICE_NOT_CONFIGURED',
-        'Le service de paiement Jɛmɛnipay n’est pas configuré sur ce serveur.',
+        providerName === 'dodo_payments'
+          ? 'Le service Dodo Payments ou le produit correspondant n’est pas configuré sur ce serveur.'
+          : 'Le service de paiement Jɛmɛnipay n’est pas configuré sur ce serveur.',
       );
     }
 
     // 4. Create local payment order record before external call
     const localPaymentId = newId();
-    const finalIdempotencyKey = idempotencyKey ?? `idem_${localPaymentId}`;
+    const finalIdempotencyKey = idempotencyKey ? `${providerName}:${idempotencyKey}` : `idem_${localPaymentId}`;
 
     try {
-      await this.db.insert(payment).values({
-        id: localPaymentId,
-        userId,
-        provider: 'jemenipay',
-        idempotencyKey: finalIdempotencyKey,
-        amountMinor: amount,
-        currency: 'XOF',
-        plan,
-        status: 'pending',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
+      const createPayment = async (executor: any) => {
+        if (terminalPaymentToRotate && idempotencyKey) {
+          await executor.update(payment).set({
+            idempotencyKey: `${finalIdempotencyKey}:closed:${terminalPaymentToRotate.id}`,
+            updatedAt: new Date(),
+          }).where(and(
+            eq(payment.id, terminalPaymentToRotate.id),
+            eq(payment.idempotencyKey, terminalPaymentToRotate.idempotencyKey),
+            or(
+              eq(payment.status, 'failed'),
+              eq(payment.status, 'cancelled'),
+              eq(payment.status, 'refunded'),
+            ),
+          ));
+        }
+        await executor.insert(payment).values({
+          id: localPaymentId,
+          userId,
+          provider: providerName,
+          idempotencyKey: finalIdempotencyKey,
+          amountMinor: amount,
+          currency: 'XOF',
+          plan,
+          status: 'pending',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+      };
+
+      if (typeof this.db.transaction === 'function') {
+        await this.db.transaction((tx: any) => createPayment(tx));
+      } else {
+        await createPayment(this.db);
+      }
     } catch (err: any) {
       // Race: another concurrent checkout request already created this payment
       const isUniqueConflict =
@@ -106,13 +148,17 @@ export class BillingService {
         const [existing] = await this.db
           .select()
           .from(payment)
-          .where(and(eq(payment.userId, userId), eq(payment.idempotencyKey, finalIdempotencyKey)))
+          .where(and(
+            eq(payment.userId, userId),
+            eq(payment.provider, providerName),
+            eq(payment.idempotencyKey, finalIdempotencyKey),
+          ))
           .limit(1);
         if (existing) {
           return {
             paymentId: existing.providerReference ?? existing.id,
             checkoutUrl: existing.checkoutUrl,
-            provider: 'jemenipay',
+            provider: existing.provider,
             status: existing.status === 'succeeded' ? 'succeeded' : 'pending',
           };
         }
@@ -122,18 +168,18 @@ export class BillingService {
 
     // 5. Perform real checkout initiation via Jemenipay Provider
     try {
-      const checkoutRes = await this.jemenipay.initiateCheckout({
-        userId,
-        email,
-        plan,
-        amount,
-        currency: 'XOF',
-        paymentMethod,
-        returnUrl,
-      });
+      const checkoutRes = providerName === 'dodo_payments'
+        ? await this.dodo!.initiateCheckout({
+            userId, email, plan, amount, currency: 'XOF', paymentMethod: 'card', returnUrl,
+            localPaymentId, idempotencyKey: finalIdempotencyKey,
+          })
+        : await this.jemenipay.initiateCheckout({
+            userId, email, plan, amount, currency: 'XOF', paymentMethod, returnUrl,
+            localPaymentId, idempotencyKey: finalIdempotencyKey,
+          });
 
       if (!checkoutRes?.paymentId || !checkoutRes?.checkoutUrl) {
-        throw new Error('Réponse Jɛmɛnipay incomplète (paymentId ou checkoutUrl manquant).');
+        throw new Error(`Réponse ${providerName} incomplète (paymentId ou checkoutUrl manquant).`);
       }
 
       // 6. Update local record with provider reference and checkout URL
@@ -150,11 +196,11 @@ export class BillingService {
       return {
         paymentId: checkoutRes.paymentId,
         checkoutUrl: checkoutRes.checkoutUrl,
-        provider: 'jemenipay',
+        provider: providerName,
         status: 'pending',
       };
     } catch (err: any) {
-      this.logger.error(`Jemenipay checkout failed for user ${userId}: ${err.message}`);
+      this.logger.error(`${providerName} checkout failed for user ${userId}: ${err.message}`);
       await this.db
         .update(payment)
         .set({
@@ -163,7 +209,7 @@ export class BillingService {
           updatedAt: new Date(),
         })
         .where(eq(payment.id, localPaymentId));
-      throw badGateway('PAYMENT_INITIATION_FAILED', `Échec d’initialisation du paiement : ${err.message}`);
+      throw badGateway('PAYMENT_INITIATION_FAILED', 'Le fournisseur de paiement n’a pas pu initialiser le paiement. Réessayez ultérieurement.');
     }
   }
 
@@ -188,9 +234,12 @@ export class BillingService {
       .select()
       .from(payment)
       .where(
-        or(
-          eq(payment.providerReference, targetRef),
-          eq(payment.id, targetRef),
+        and(
+          eq(payment.provider, 'jemenipay'),
+          or(
+            eq(payment.providerReference, targetRef),
+            eq(payment.id, targetRef),
+          ),
         ),
       )
       .limit(1);
@@ -205,14 +254,18 @@ export class BillingService {
       throw badRequest('PAYMENT_REFERENCE_MISMATCH', 'Référence de paiement inconnue.');
     }
 
-    // Strict idempotency: if already completed, acknowledge without duplicate action
+    // Strict idempotency: acknowledge terminal states without repeating effects.
     if (local.status === 'succeeded') {
       return { received: true, status: 'succeeded', alreadyProcessed: true };
     }
-
-    // Invalid transitions
-    if (local.status === 'failed' || local.status === 'cancelled' || local.status === 'refunded') {
-      throw badRequest('INVALID_PAYMENT_TRANSITION', 'Transition de paiement invalide.');
+    if (local.status === 'failed') {
+      if (verified.status === 'success') {
+        throw badRequest('INVALID_PAYMENT_TRANSITION', 'Un paiement déjà échoué ne peut pas être validé.');
+      }
+      return { received: true, status: 'failed', alreadyProcessed: true };
+    }
+    if (local.status === 'cancelled' || local.status === 'refunded') {
+      return { received: true, status: local.status, alreadyProcessed: true };
     }
 
     // Verify amount and currency
@@ -231,6 +284,30 @@ export class BillingService {
     const webhookUser = verified.metadata?.userId ?? verified.metadata?.user_id;
     if (webhookUser && webhookUser !== local.userId) {
       throw badRequest('USER_MISMATCH', 'L’utilisateur du webhook ne correspond pas à la commande locale.');
+    }
+
+    if (verified.status === 'pending') {
+      await this.db.update(payment).set({
+        status: 'processing',
+        rawStatus: verified.externalReference ?? 'PENDING',
+        updatedAt: new Date(),
+      }).where(and(
+        eq(payment.id, local.id),
+        or(eq(payment.status, 'pending'), eq(payment.status, 'processing')),
+      ));
+      return { received: true, status: 'processing' };
+    }
+
+    if (verified.status === 'failed') {
+      await this.db.update(payment).set({
+        status: 'failed',
+        rawStatus: verified.externalReference ?? 'FAILED',
+        updatedAt: new Date(),
+      }).where(and(
+        eq(payment.id, local.id),
+        or(eq(payment.status, 'pending'), eq(payment.status, 'processing')),
+      ));
+      return { received: true, status: 'failed' };
     }
 
     const plan = local.plan as PlanName;
@@ -279,35 +356,40 @@ export class BillingService {
           await updateQuery;
         }
 
-        // 2. Deactivate any previous active subscription for this user
-        await tx
-          .update(subscription)
-          .set({
-            status: 'canceled',
+        // 2. Centralize subscription rights through EntitlementsModule.
+        if (this.entitlements) {
+          await this.entitlements.activateSubscription({
+            userId: local.userId,
+            plan,
+            status: 'active',
+            provider: 'jemenipay',
+            providerSubscriptionId: verified.externalReference ?? verified.paymentId,
+            currentPeriodStart,
+            currentPeriodEnd,
+            cancelAtPeriodEnd: false,
+          }, tx);
+        } else {
+          // Compatibility fallback for isolated legacy unit tests. Preserve all
+          // provider subscription records; a local write cannot cancel a store.
+          await tx.insert(subscription).values({
+            id: newId(),
+            userId: local.userId,
+            plan,
+            status: 'active',
+            provider: 'jemenipay',
+            providerSubscriptionId: verified.externalReference ?? verified.paymentId,
+            currentPeriodStart,
+            currentPeriodEnd,
+            cancelAtPeriodEnd: false,
+            createdAt: now,
             updatedAt: now,
-          })
-          .where(
-            and(
-              eq(subscription.userId, local.userId),
-              eq(subscription.status, 'active'),
-            ),
-          );
-
-        // 3. Atomically activate new subscription with exact validity period
-        await tx.insert(subscription).values({
-          id: newId(),
-          userId: local.userId,
-          plan,
-          status: 'active',
-          provider: 'jemenipay',
-          providerSubscriptionId: verified.externalReference ?? verified.paymentId,
-          currentPeriodStart,
-          currentPeriodEnd,
-          cancelAtPeriodEnd: false,
-          createdAt: now,
-          updatedAt: now,
-        });
+          });
+        }
       });
+
+      // The payment transaction is committed; now refresh Novu audience/channel
+      // memberships so a newly activated plan receives the correct announcements.
+      await this.entitlements?.syncNotificationMembership(local.userId);
 
       this.logger.log(
         `Abonnement ${plan} (${durationDays}j) activé avec succès pour l'utilisateur ${local.userId} (Paiement: ${local.id})`,
@@ -320,24 +402,9 @@ export class BillingService {
         plan,
         periodEnd: currentPeriodEnd.toISOString(),
       };
-    } else {
-      // Payment failed at provider (must NEVER overwrite an already succeeded payment)
-      await this.db
-        .update(payment)
-        .set({
-          status: 'failed',
-          rawStatus: verified.externalReference ?? 'FAILED',
-          updatedAt: new Date(),
-        })
-        .where(
-          and(
-            eq(payment.id, local.id),
-            ne(payment.status, 'succeeded'),
-          ),
-        );
-
-      return { received: true, status: 'failed' };
     }
+
+    return { received: true, status: 'failed', warning: 'UNSUPPORTED_PAYMENT_STATUS' };
   }
 }
 

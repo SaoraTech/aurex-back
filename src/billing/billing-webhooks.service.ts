@@ -1,0 +1,450 @@
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import { and, eq, lte, ne, or, sql } from 'drizzle-orm';
+import { badGateway, badRequest, notFound, unauthorized } from '../common/errors';
+import { newId } from '../common/ids';
+import { DRIZZLE } from '../db/db.constants';
+import { billingWebhookEvent, payment, subscription, user } from '../db/schema';
+import { DodoPaymentsProvider } from './providers/dodo-payments.provider';
+import { RevenueCatProvider } from './providers/revenuecat.provider';
+import { HuaweiIapProvider } from './providers/huawei-iap.provider';
+import { EntitlementsService } from '../entitlements/entitlements.service';
+
+@Injectable()
+export class BillingWebhooksService {
+  private readonly logger = new Logger(BillingWebhooksService.name);
+
+  constructor(
+    @Inject(DRIZZLE) private readonly db: any,
+    private readonly dodo: DodoPaymentsProvider,
+    private readonly revenueCat: RevenueCatProvider,
+    private readonly huawei: HuaweiIapProvider,
+    private readonly entitlements: EntitlementsService,
+  ) {}
+
+  async handleDodo(rawBody: Buffer | string, headers: {
+    webhookId?: string;
+    webhookTimestamp?: string;
+    webhookSignature?: string;
+  }) {
+    let event;
+    try {
+      event = this.dodo.verifyWebhook(rawBody, headers);
+    } catch {
+      throw unauthorized('INVALID_DODO_SIGNATURE', 'Signature du webhook Dodo Payments invalide.');
+    }
+
+    return this.processEvent('dodo_payments', event.eventId, event.type, () => this.applyDodoEvent(event));
+  }
+
+  async handleRevenueCat(rawBody: Buffer | string, authorization?: string, signature?: string) {
+    let event;
+    try {
+      event = this.revenueCat.verifyWebhook(rawBody, authorization, signature);
+    } catch {
+      throw unauthorized('INVALID_REVENUECAT_WEBHOOK', 'Authentification ou signature RevenueCat invalide.');
+    }
+
+    return this.processEvent('revenuecat', event.id, event.type, () => this.applyRevenueCatEvent(event));
+  }
+
+  async handleHuawei(rawBody: Buffer | string) {
+    let notification: Record<string, any>;
+    try {
+      notification = this.huawei.verifyNotification(rawBody);
+    } catch {
+      throw unauthorized('INVALID_HUAWEI_SIGNATURE', 'Signature de notification Huawei IAP invalide.');
+    }
+
+    const purchaseToken = String(notification.purchaseToken ?? '');
+    const subscriptionId = String(notification.subscriptionId ?? '');
+    if (!purchaseToken || !subscriptionId) {
+      throw badRequest('INVALID_HUAWEI_NOTIFICATION', 'La notification Huawei ne contient pas le purchaseToken et subscriptionId requis.');
+    }
+
+    const eventId = String(
+      notification.notificationId ??
+      notification.eventId ??
+      `${subscriptionId}:${notification.notificationType ?? 'subscription'}:${purchaseToken}:${notification.expirationDate ?? notification.expirationTime ?? notification.purchaseTime ?? notification.eventTime ?? 'unknown'}`,
+    );
+    const eventType = String(notification.notificationType ?? 'subscription.status_changed');
+
+    return this.processEvent('huawei_iap', eventId, eventType, async () => {
+      const verified = await this.huawei.verifySubscriptionToken(purchaseToken, subscriptionId);
+      const [account] = await this.db.select({ id: user.id }).from(user).where(eq(user.id, verified.userId)).limit(1);
+      if (!account) throw notFound('HUAWEI_USER_NOT_FOUND', 'Utilisateur Aurex associé à cet achat introuvable.');
+
+      await this.upsertSubscription({
+        userId: verified.userId,
+        plan: verified.plan,
+        provider: 'huawei_iap',
+        providerSubscriptionId: verified.purchaseToken,
+        status: verified.isActive ? 'active' : 'expired',
+        currentPeriodStart: verified.purchaseTime,
+        currentPeriodEnd: verified.expirationDate,
+        cancelAtPeriodEnd: !verified.isAutoRenewing,
+      });
+
+      return {
+        status: verified.isActive ? 'active' : 'expired',
+        plan: verified.isActive ? verified.plan : 'free',
+        providerSubscriptionId: verified.subscriptionId,
+      };
+    });
+  }
+
+  private async processEvent(provider: string, eventId: string, eventType: string, handler: () => Promise<Record<string, unknown>>) {
+    const now = new Date();
+    const [created] = await this.db.insert(billingWebhookEvent).values({
+      id: newId(),
+      provider,
+      providerEventId: eventId,
+      eventType,
+      status: 'processing',
+      attempts: 1,
+      receivedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    }).onConflictDoNothing().returning();
+
+    if (!created) {
+      const [existing] = await this.db.select().from(billingWebhookEvent).where(and(
+        eq(billingWebhookEvent.provider, provider),
+        eq(billingWebhookEvent.providerEventId, eventId),
+      )).limit(1);
+
+      if (existing?.status === 'processed') {
+        return { received: true, duplicate: true, status: existing.status };
+      }
+
+      // A process can crash after claiming an event. Reclaim only failed events or
+      // processing leases older than five minutes; the conditional UPDATE is the
+      // concurrency gate so only one webhook delivery can acquire the lease.
+      const staleBefore = new Date(now.getTime() - 5 * 60 * 1000);
+      const retryCondition = existing?.status === 'failed'
+        ? eq(billingWebhookEvent.status, 'failed')
+        : existing?.status === 'processing'
+          ? and(
+              eq(billingWebhookEvent.status, 'processing'),
+              lte(billingWebhookEvent.updatedAt, staleBefore),
+            )
+          : undefined;
+
+      if (!retryCondition) {
+        if (existing?.status === 'processing') {
+          // Do not acknowledge an event that is still being processed: a provider
+          // retry is the recovery path if the worker crashes before completion.
+          throw badGateway('BILLING_WEBHOOK_IN_PROGRESS', 'Un événement identique est déjà en cours de traitement. Réessayez ultérieurement.');
+        }
+        return { received: true, duplicate: true, status: existing?.status ?? 'processing' };
+      }
+
+      const [retry] = await this.db.update(billingWebhookEvent).set({
+        status: 'processing',
+        attempts: sql`${billingWebhookEvent.attempts} + 1`,
+        errorCode: null,
+        updatedAt: now,
+      }).where(and(
+        eq(billingWebhookEvent.provider, provider),
+        eq(billingWebhookEvent.providerEventId, eventId),
+        retryCondition,
+      )).returning();
+
+      if (!retry) return { received: true, duplicate: true, status: 'processing' };
+    }
+
+    try {
+      const result = await handler();
+      await this.db.update(billingWebhookEvent).set({
+        status: 'processed',
+        processedAt: new Date(),
+        errorCode: null,
+        updatedAt: new Date(),
+      }).where(and(
+        eq(billingWebhookEvent.provider, provider),
+        eq(billingWebhookEvent.providerEventId, eventId),
+      ));
+      return { received: true, duplicate: false, ...result };
+    } catch (error) {
+      this.logger.error({
+        msg: 'billing_webhook_processing_failed',
+        provider,
+        eventId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      await this.db.update(billingWebhookEvent).set({
+        status: 'failed',
+        errorCode: error instanceof Error ? error.message.slice(0, 500) : 'PROCESSING_FAILED',
+        updatedAt: new Date(),
+      }).where(and(
+        eq(billingWebhookEvent.provider, provider),
+        eq(billingWebhookEvent.providerEventId, eventId),
+      ));
+      throw badGateway('BILLING_WEBHOOK_PROCESSING_FAILED', 'Le webhook de paiement n’a pas pu être traité. Le fournisseur pourra réessayer.');
+    }
+  }
+
+  private async applyDodoEvent(event: { type: string; data: Record<string, any> }) {
+    const data = event.data;
+    const type = event.type.toLowerCase();
+    const metadata = data.metadata ?? data.subscription?.metadata ?? {};
+    const localPaymentId = String(metadata.localPaymentId ?? '');
+    const providerSubscriptionId = String(data.subscription_id ?? data.subscription?.id ?? '');
+    const productPlan = this.dodo.resolvePlanFromProductId(data.product_id ?? data.product?.product_id);
+
+    let localPayment: any;
+    if (localPaymentId) {
+      const [row] = await this.db.select().from(payment).where(and(
+        eq(payment.id, localPaymentId),
+        eq(payment.provider, 'dodo_payments'),
+      )).limit(1);
+      localPayment = row;
+    }
+
+    let currentSubscription: any;
+    if (!localPayment && providerSubscriptionId) {
+      const [row] = await this.db.select().from(subscription).where(and(
+        eq(subscription.provider, 'dodo_payments'),
+        eq(subscription.providerSubscriptionId, providerSubscriptionId),
+      )).limit(1);
+      currentSubscription = row;
+    }
+
+    const userId = localPayment?.userId ?? currentSubscription?.userId ?? String(metadata.userId ?? '');
+    const plan = productPlan ?? localPayment?.plan ?? currentSubscription?.plan ?? metadata.plan;
+    if (type !== 'subscription.plan_changed' && metadata.plan && productPlan && metadata.plan !== productPlan) {
+      throw badRequest('DODO_PRODUCT_PLAN_MISMATCH', 'Le produit Dodo ne correspond pas au plan Aurex attendu.');
+    }
+    if (!userId || !plan) {
+      this.logger.warn({ msg: 'dodo_webhook_local_reference_missing', eventType: event.type });
+      return { ignored: true, reason: 'LOCAL_REFERENCE_NOT_FOUND' };
+    }
+    if (metadata.userId && metadata.userId !== userId) throw badRequest('DODO_USER_MISMATCH', 'Utilisateur Dodo incohérent.');
+    if (type !== 'subscription.plan_changed' && metadata.plan && metadata.plan !== plan) throw badRequest('DODO_PLAN_MISMATCH', 'Plan Dodo incohérent.');
+
+    if (localPayment && data.currency && String(data.currency).toUpperCase() !== localPayment.currency) {
+      throw badRequest('DODO_CURRENCY_MISMATCH', 'La devise Dodo ne correspond pas à la commande.');
+    }
+    const receivedAmount = data.total_amount ?? data.amount;
+    if (localPayment && receivedAmount !== undefined && Number(receivedAmount) !== Number(localPayment.amountMinor)) {
+      throw badRequest('DODO_AMOUNT_MISMATCH', 'Le montant Dodo ne correspond pas à la commande.');
+    }
+
+    if (type === 'payment.failed') {
+      if (localPayment) await this.db.update(payment).set({ status: 'failed', rawStatus: type, updatedAt: new Date() }).where(and(
+        eq(payment.id, localPayment.id),
+        eq(payment.provider, 'dodo_payments'),
+        ne(payment.status, 'succeeded'),
+        ne(payment.status, 'refunded'),
+        ne(payment.status, 'cancelled'),
+      ));
+      return { status: 'failed' };
+    }
+
+    if (type === 'refund.succeeded' || type === 'payment.refunded') {
+      if (localPayment) await this.db.update(payment).set({ status: 'refunded', rawStatus: type, updatedAt: new Date() }).where(eq(payment.id, localPayment.id));
+      if (providerSubscriptionId) {
+        await this.db.update(subscription).set({ status: 'canceled', cancelAtPeriodEnd: false, updatedAt: new Date() }).where(and(
+          eq(subscription.provider, 'dodo_payments'),
+          eq(subscription.providerSubscriptionId, providerSubscriptionId),
+        ));
+        await this.entitlements.syncNotificationMembership(userId);
+      }
+      return { status: 'refunded' };
+    }
+
+    if (type === 'subscription.cancelled' || type === 'subscription.canceled') {
+      if (!providerSubscriptionId) {
+        throw badRequest('DODO_SUBSCRIPTION_ID_MISSING', 'L’événement d’annulation Dodo ne contient pas de référence d’abonnement.');
+      }
+      const end = this.toDate(data.current_period_end ?? data.next_billing_date);
+      await this.db.update(subscription).set({
+        status: end && end > new Date() ? 'active' : 'canceled',
+        cancelAtPeriodEnd: Boolean(end && end > new Date()),
+        currentPeriodEnd: end ?? undefined,
+        updatedAt: new Date(),
+      }).where(and(
+        eq(subscription.provider, 'dodo_payments'),
+        eq(subscription.providerSubscriptionId, providerSubscriptionId),
+      ));
+      await this.entitlements.syncNotificationMembership(userId);
+      return { status: 'canceled' };
+    }
+
+    if (type === 'subscription.on_hold' || type === 'subscription.failed') {
+      if (!providerSubscriptionId) {
+        throw badRequest('DODO_SUBSCRIPTION_ID_MISSING', 'L’événement de facturation Dodo ne contient pas de référence d’abonnement.');
+      }
+      await this.db.update(subscription).set({ status: 'past_due', updatedAt: new Date() }).where(and(
+        eq(subscription.provider, 'dodo_payments'),
+        eq(subscription.providerSubscriptionId, providerSubscriptionId),
+      ));
+      if (localPayment && type === 'subscription.failed') {
+        await this.db.update(payment).set({ status: 'failed', rawStatus: type, updatedAt: new Date() })
+          .where(and(eq(payment.id, localPayment.id), eq(payment.provider, 'dodo_payments')));
+      }
+      await this.entitlements.syncNotificationMembership(userId);
+      return { status: 'past_due' };
+    }
+
+    if (type === 'payment.succeeded') {
+      // Dodo emits payment.succeeded alongside subscription.active/renewed.
+      // Payment confirmation is financial state; subscription events grant access.
+      if (localPayment) {
+        await this.db.update(payment).set({ status: 'succeeded', rawStatus: type, updatedAt: new Date() })
+          .where(and(
+            eq(payment.id, localPayment.id),
+            eq(payment.provider, 'dodo_payments'),
+            or(eq(payment.status, 'pending'), eq(payment.status, 'processing')),
+          ));
+      }
+      return { status: 'succeeded', subscriptionActivated: false };
+    }
+
+    if (type === 'subscription.active' || type === 'subscription.renewed' || type === 'subscription.plan_changed') {
+      if (!providerSubscriptionId) {
+        throw badRequest('DODO_SUBSCRIPTION_ID_MISSING', 'L’événement Dodo ne contient pas de référence d’abonnement vérifiable.');
+      }
+      if (type === 'subscription.plan_changed' && !productPlan) {
+        throw badRequest('DODO_PRODUCT_NOT_MAPPED', 'Le produit du changement de plan Dodo ne correspond à aucun plan Aurex configuré.');
+      }
+      if (type !== 'subscription.plan_changed' && metadata.plan && productPlan && metadata.plan !== productPlan) {
+        throw badRequest('DODO_PRODUCT_PLAN_MISMATCH', 'Le produit Dodo ne correspond pas au plan Aurex attendu.');
+      }
+      if (type !== 'subscription.plan_changed' && localPayment?.plan && productPlan && localPayment.plan !== productPlan) {
+        throw badRequest('DODO_PAYMENT_PLAN_MISMATCH', 'Le produit Dodo ne correspond pas au plan de paiement local.');
+      }
+      const now = new Date();
+      // Subscription lifecycle events control access; only payment.succeeded
+      // may mark the financial transaction as paid.
+      const durationDays = String(plan).endsWith('_promo') ? 7 : 30;
+      const start = this.toDate(data.current_period_start ?? data.previous_billing_date ?? data.created_at) ?? now;
+      const end = this.toDate(data.current_period_end ?? data.next_billing_date ?? data.expires_at)
+        ?? new Date(start.getTime() + durationDays * 86400 * 1000);
+
+      await this.upsertSubscription({
+        userId,
+        plan,
+        provider: 'dodo_payments',
+        providerSubscriptionId,
+        status: 'active',
+        currentPeriodStart: start,
+        currentPeriodEnd: end,
+        cancelAtPeriodEnd: false,
+      });
+      return { status: 'active', plan, periodEnd: end.toISOString() };
+    }
+
+    return { ignored: true, reason: 'UNSUPPORTED_EVENT_TYPE' };
+  }
+
+  private async applyRevenueCatEvent(event: {
+    appUserId: string;
+    originalAppUserId?: string;
+    type?: string;
+    transferredFrom?: string[];
+    transferredTo?: string[];
+  }) {
+    const ids = this.revenueCat.getEntitlementIds();
+    const now = new Date();
+
+    const getEffectiveExpiry = (entry: any): Date | null => {
+      if (!entry) return null;
+      const expirations = [entry.expires_date, entry.grace_period_expires_date]
+        .filter(Boolean)
+        .map((value: string) => new Date(value))
+        .filter((value: Date) => Number.isFinite(value.getTime()));
+      if (expirations.length === 0) {
+        // A genuinely non-expiring entitlement is valid; a malformed supplied
+        // expiry must fail closed rather than becoming indefinite access.
+        return entry.expires_date || entry.grace_period_expires_date ? new Date(0) : null;
+      }
+      return new Date(Math.max(...expirations.map((value: Date) => value.getTime())));
+    };
+    const isActive = (entry: any) => {
+      if (!entry) return false;
+      const expiry = getEffectiveExpiry(entry);
+      return !expiry || expiry > now;
+    };
+
+    const sourceIds = [...new Set(event.transferredFrom ?? [])];
+    if (String(event.type ?? '').toUpperCase() === 'TRANSFER') {
+      for (const sourceId of sourceIds) {
+        const [sourceUser] = await this.db.select({ id: user.id }).from(user).where(eq(user.id, sourceId)).limit(1);
+        if (sourceUser) {
+          await this.entitlements.expireProviderSubscriptions(sourceUser.id, 'revenuecat');
+        }
+      }
+    }
+
+    const isTransfer = String(event.type ?? '').toUpperCase() === 'TRANSFER';
+    const candidates = [...new Set([
+      ...(event.transferredTo ?? []),
+      event.appUserId,
+      ...(isTransfer ? [] : [event.originalAppUserId]),
+    ].filter(Boolean) as string[])];
+    const matchedUsers: Array<{ userId: string; appUserId: string }> = [];
+    for (const candidate of candidates) {
+      const [found] = await this.db.select({ id: user.id }).from(user).where(eq(user.id, candidate)).limit(1);
+      if (found && !matchedUsers.some(item => item.userId === found.id)) {
+        matchedUsers.push({ userId: found.id, appUserId: candidate });
+      }
+    }
+    if (matchedUsers.length === 0) {
+      throw notFound('REVENUECAT_USER_NOT_FOUND', 'Utilisateur Aurex associé à l’achat RevenueCat introuvable.');
+    }
+
+    let activated = 0;
+    let effectivePlan: 'plus' | 'pro' | 'free' = 'free';
+    for (const match of matchedUsers) {
+      const customerResponse = await this.revenueCat.getSubscriber(match.appUserId);
+      const customer = customerResponse.subscriber ?? customerResponse;
+      const customerEntitlements = customer.entitlements ?? {};
+      const customerPro = customerEntitlements[ids.pro ?? ''];
+      const customerPlus = customerEntitlements[ids.plus ?? ''];
+      const customerPlan = isActive(customerPro) ? 'pro' : isActive(customerPlus) ? 'plus' : null;
+      const entitlement = customerPlan === 'pro' ? customerPro : customerPlan === 'plus' ? customerPlus : null;
+
+      if (!customerPlan) {
+        await this.entitlements.expireProviderSubscriptions(match.userId, 'revenuecat');
+        continue;
+      }
+
+      const periodStart = this.toDate(entitlement.purchase_date) ?? now;
+      const periodEnd = getEffectiveExpiry(entitlement);
+      const providerSubscriptionId = String(customer.original_app_user_id ?? match.appUserId);
+      await this.upsertSubscription({
+        userId: match.userId,
+        plan: customerPlan,
+        provider: 'revenuecat',
+        providerSubscriptionId,
+        status: 'active',
+        currentPeriodStart: periodStart,
+        currentPeriodEnd: periodEnd,
+        cancelAtPeriodEnd: false,
+      });
+      activated += 1;
+      if (customerPlan === 'pro' || effectivePlan === 'free') effectivePlan = customerPlan;
+    }
+
+    return { status: activated > 0 ? 'active' : 'expired', plan: effectivePlan, accountsUpdated: matchedUsers.length };
+  }
+
+  private async upsertSubscription(input: {
+    userId: string;
+    plan: string;
+    provider: string;
+    providerSubscriptionId: string;
+    status: string;
+    currentPeriodStart: Date;
+    currentPeriodEnd: Date | null;
+    cancelAtPeriodEnd: boolean;
+  }) {
+    return this.entitlements.activateSubscription(input);
+  }
+
+  private toDate(value: unknown): Date | null {
+    if (value === undefined || value === null || value === '') return null;
+    const date = typeof value === 'number' ? new Date(value) : new Date(String(value));
+    return Number.isFinite(date.getTime()) ? date : null;
+  }
+}

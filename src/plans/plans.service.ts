@@ -1,6 +1,6 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { and, desc, eq, gte } from 'drizzle-orm';
+import { and, desc, eq, gte, isNull, or } from 'drizzle-orm';
 import { DRIZZLE } from '../db/db.constants';
 import { subscription } from '../db/schema';
 
@@ -24,7 +24,7 @@ export interface SubscriptionInfo {
   isPromo: boolean;
   status: 'active' | 'expired' | 'canceled' | 'none';
   currentPeriodStart?: Date;
-  currentPeriodEnd?: Date;
+  currentPeriodEnd?: Date | null;
   cancelAtPeriodEnd?: boolean;
 }
 
@@ -177,8 +177,7 @@ export class PlansService {
       };
     }
 
-    try {
-      const now = new Date();
+    const now = new Date();
       const rows = await this.db
         .select({
           plan: subscription.plan,
@@ -192,7 +191,7 @@ export class PlansService {
           and(
             eq(subscription.userId, userId),
             eq(subscription.status, 'active'),
-            gte(subscription.currentPeriodEnd, now),
+            or(isNull(subscription.currentPeriodEnd), gte(subscription.currentPeriodEnd, now)),
           ),
         )
         .orderBy(desc(subscription.updatedAt))
@@ -212,7 +211,7 @@ export class PlansService {
         plan: PlanName;
         status: string;
         currentPeriodStart: Date;
-        currentPeriodEnd: Date;
+        currentPeriodEnd: Date | null;
         cancelAtPeriodEnd: boolean;
       }>;
 
@@ -241,13 +240,5 @@ export class PlansService {
         currentPeriodEnd: found.currentPeriodEnd,
         cancelAtPeriodEnd: found.cancelAtPeriodEnd,
       };
-    } catch {
-      return {
-        plan: 'free',
-        commercialTier: 'free',
-        isPromo: false,
-        status: 'none',
-      };
-    }
   }
 }
