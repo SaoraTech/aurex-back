@@ -41,6 +41,7 @@ describe('HuaweiIapProvider', () => {
       purchaseTime: Date.now() - 1000,
       expirationDate: Date.now() + 86_400_000,
       lastOrderId: 'order_1',
+      purchaseToken: 'purchase_token',
       autoRenewing: true,
     });
     const dataSignature = sign('RSA-SHA256', Buffer.from(purchaseData), privateKey).toString('base64');
@@ -55,7 +56,7 @@ describe('HuaweiIapProvider', () => {
       } as Response);
 
     const result = await provider.verifySubscriptionToken('purchase_token', 'sub_1');
-    expect(result).toMatchObject({ userId: 'user_1', plan: 'plus', subscriptionId: 'sub_1', isActive: true });
+    expect(result).toMatchObject({ userId: 'user_1', plan: 'plus', subscriptionId: 'sub_1', purchaseToken: 'purchase_token', isActive: true });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
