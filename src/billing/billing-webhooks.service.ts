@@ -339,10 +339,10 @@ export class BillingWebhooksService {
   private async applyRevenueCatEvent(event: {
     appUserId: string;
     originalAppUserId?: string;
+    type?: string;
+    transferredFrom?: string[];
+    transferredTo?: string[];
   }) {
-    const response = await this.revenueCat.getSubscriber(event.appUserId);
-    const subscriber = response.subscriber ?? response;
-    const entitlements = subscriber.entitlements ?? {};
     const ids = this.revenueCat.getEntitlementIds();
     const now = new Date();
 
@@ -355,11 +355,6 @@ export class BillingWebhooksService {
       if (expirations.length === 0) return true;
       return Math.max(...expirations.map((value: Date) => value.getTime())) > now.getTime();
     };
-
-    const proEntitlement = entitlements[ids.pro ?? ''];
-    const plusEntitlement = entitlements[ids.plus ?? ''];
-    const plan = isActive(proEntitlement) ? 'pro' : isActive(plusEntitlement) ? 'plus' : null;
-    const activeEntitlement = plan === 'pro' ? proEntitlement : plan === 'plus' ? plusEntitlement : null;
 
     const sourceIds = [...new Set(event.transferredFrom ?? [])];
     if (String(event.type ?? '').toUpperCase() === 'TRANSFER') {
@@ -388,6 +383,7 @@ export class BillingWebhooksService {
     }
 
     let activated = 0;
+    let effectivePlan: 'plus' | 'pro' | 'free' = 'free';
     for (const match of matchedUsers) {
       const customerResponse = await this.revenueCat.getSubscriber(match.appUserId);
       const customer = customerResponse.subscriber ?? customerResponse;
@@ -416,9 +412,10 @@ export class BillingWebhooksService {
         cancelAtPeriodEnd: false,
       });
       activated += 1;
+      if (customerPlan === 'pro' || effectivePlan === 'free') effectivePlan = customerPlan;
     }
 
-    return { status: activated > 0 ? 'active' : 'expired', plan: activated > 0 ? plan : 'free', accountsUpdated: matchedUsers.length };
+    return { status: activated > 0 ? 'active' : 'expired', plan: effectivePlan, accountsUpdated: matchedUsers.length };
   }
 
   private async upsertSubscription(input: {
