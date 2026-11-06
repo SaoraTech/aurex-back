@@ -25,6 +25,7 @@ const isUniqueViolation = (e: unknown) =>
 export class ChatService {
   private readonly logger = new Logger(ChatService.name);
   private readonly activeGenerations = new Map<string, AbortController>();
+  private readonly activeConversationGenerations = new Set<string>();
 
   constructor(
     @Inject(DRIZZLE) private readonly db: any,
@@ -81,6 +82,10 @@ export class ChatService {
       createdAt: new Date(),
     });
     return { ...result, message: { ...result.message, sources: alternativeSources }, alternativeOf: assistantMessageId };
+  }
+
+  generationStatus(userId: string, requestId: string) {
+    return { requestId, active: this.activeGenerations.has(userId + ':' + requestId) };
   }
 
   cancelGeneration(userId: string, requestId: string) {
@@ -157,7 +162,8 @@ export class ChatService {
 
     const generationId = input.requestId ?? correlationId;
     const generationKey = generationId ? userId + ':' + generationId : undefined;
-    if (generationKey && this.activeGenerations.has(generationKey)) {
+    const conversationKey = userId + ':' + convo.id;
+    if (this.activeConversationGenerations.has(conversationKey) || (generationKey && this.activeGenerations.has(generationKey))) {
       throw conflict('REQUEST_IN_PROGRESS', 'Cette génération est déjà en cours.');
     }
     const abortController = new AbortController();
@@ -165,10 +171,12 @@ export class ChatService {
     if (streamOptions?.signal?.aborted) abortController.abort();
     else streamOptions?.signal?.addEventListener('abort', abortFromClient, { once: true });
     if (generationKey) this.activeGenerations.set(generationKey, abortController);
+    this.activeConversationGenerations.add(conversationKey);
     const releaseGeneration = () => {
       if (generationKey && this.activeGenerations.get(generationKey) === abortController) {
         this.activeGenerations.delete(generationKey);
       }
+      this.activeConversationGenerations.delete(conversationKey);
       streamOptions?.signal?.removeEventListener('abort', abortFromClient);
     };
 
