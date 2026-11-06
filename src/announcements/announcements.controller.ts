@@ -153,7 +153,7 @@ export class AnnouncementsController {
   @Protect('read')
   async unreadCount(@Req() req: any) {
     const user = await this.users.resolve(req);
-    const plan = await this.plans.getEffectivePlan(user.id);
+    const plan = (await this.plans.getSubscriptionInfo(user.id)).commercialTier;
     return this.announcements.getUnreadCount(user.id, plan);
   }
 

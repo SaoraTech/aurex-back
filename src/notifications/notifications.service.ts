@@ -109,4 +109,109 @@ export class NotificationsService {
       return { sent: false, reason: 'provider_error' };
     }
   }
+
+  /**
+   * Ensures the Novu subscriber exists and is subscribed to the editorial topic.
+   * Audience targeting is evaluated by Novu against the server-synced commercial plan.
+   */
+  async syncSubscriber(input: {
+    subscriberId: string;
+    email: string;
+    firstName?: string;
+    plan: 'free' | 'plus' | 'pro';
+    preferences: {
+      editorialEmailEnabled: boolean;
+      editorialPushEnabled: boolean;
+      transactionalEmailEnabled: boolean;
+      transactionalPushEnabled: boolean;
+    };
+  }): Promise<TriggerWorkflowResult> {
+    const key = this.apiKey;
+    if (!key) return { sent: false, reason: 'not_configured' };
+
+    const baseUrl = this.apiUrl.replace(/\\/+$/, '');
+    const headers = {
+      'Content-Type': 'application/json',
+      Authorization: `ApiKey ${key}`,
+    };
+    const subscriber = {
+      subscriberId: input.subscriberId,
+      email: input.email,
+      ...(input.firstName ? { firstName: input.firstName } : {}),
+      data: {
+        plan: input.plan,
+        editorialEmailEnabled: input.preferences.editorialEmailEnabled,
+        editorialPushEnabled: input.preferences.editorialPushEnabled,
+        transactionalEmailEnabled: input.preferences.transactionalEmailEnabled,
+        transactionalPushEnabled: input.preferences.transactionalPushEnabled,
+      },
+    };
+
+    try {
+      let response = await fetchWithTimeout(
+        'novu',
+        `${baseUrl}/v1/subscribers/${encodeURIComponent(input.subscriberId)}`,
+        { method: 'PUT', headers, body: JSON.stringify(subscriber) },
+        5000,
+      );
+
+      if (response.status === 404) {
+        response = await fetchWithTimeout(
+          'novu',
+          `${baseUrl}/v1/subscribers`,
+          { method: 'POST', headers, body: JSON.stringify(subscriber) },
+          5000,
+        );
+      }
+
+      if (!response.ok) {
+        this.logger.warn({ msg: 'novu_subscriber_sync_rejected', status: response.status });
+        return { sent: false, reason: `subscriber_http_${response.status}` };
+      }
+
+      const topicKey = 'announcements:all';
+      const identifier = `${input.subscriberId}-announcements`;
+      const preferences = [{
+        filter: { workflowIds: ['aurex-announcement'] },
+        condition: {
+          or: [
+            { '===': [{ var: 'payload.targetAudience' }, 'all'] },
+            { '===': [{ var: 'subscriber.data.plan' }, { var: 'payload.targetAudience' }] },
+          ],
+        },
+      }];
+      const topicUrl = `${baseUrl}/v2/topics/${encodeURIComponent(topicKey)}/subscriptions`;
+      const topicBody = {
+        subscriptions: [{ identifier, subscriberId: input.subscriberId }],
+        preferences,
+      };
+
+      response = await fetchWithTimeout(
+        'novu',
+        topicUrl,
+        { method: 'POST', headers, body: JSON.stringify(topicBody) },
+        5000,
+      );
+
+      if (response.status === 409) {
+        response = await fetchWithTimeout(
+          'novu',
+          `${topicUrl}/${encodeURIComponent(identifier)}`,
+          { method: 'PATCH', headers, body: JSON.stringify({ preferences }) },
+          5000,
+        );
+      }
+
+      if (!response.ok) {
+        this.logger.warn({ msg: 'novu_topic_subscription_rejected', status: response.status });
+        return { sent: false, reason: `topic_http_${response.status}` };
+      }
+
+      return { sent: true };
+    } catch (error) {
+      this.logger.warn({ msg: 'novu_subscriber_sync_failed', error: (error as Error).message });
+      return { sent: false, reason: 'provider_error' };
+    }
+  }
+
 }

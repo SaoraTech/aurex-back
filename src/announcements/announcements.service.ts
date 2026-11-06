@@ -144,10 +144,11 @@ export class AnnouncementsService {
     if (channels.length === 0) return;
 
     const result = await this.notifications.triggerWorkflow({
-      topicKey: `announcements:${published.targetAudience}`,
+      topicKey: 'announcements:all',
       workflowId: 'aurex-announcement',
       payload: {
         announcementId: published.id,
+        targetAudience: published.targetAudience,
         title: published.title,
         summary: published.summary,
         category: published.category,

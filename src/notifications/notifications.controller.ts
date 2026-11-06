@@ -6,6 +6,7 @@ import { CurrentUserId } from '../common/user.decorator';
 import { Protect } from '../security/protect.decorator';
 import { NotificationsService } from './notifications.service';
 import { NotificationPreferencesService } from './notification-preferences.service';
+import { NotificationSubscribersService } from './notification-subscribers.service';
 
 class UpdateNotificationPreferencesDto {
   @IsOptional() @IsBoolean()
@@ -29,11 +30,13 @@ export class NotificationsController {
   constructor(
     private readonly notifications: NotificationsService,
     private readonly preferences: NotificationPreferencesService,
+    private readonly subscribers: NotificationSubscribersService,
   ) {}
 
   @Get('subscriber-token')
   @Protect('read')
-  getSubscriberToken(@CurrentUserId() userId: string) {
+  async getSubscriberToken(@CurrentUserId() userId: string) {
+    await this.subscribers.sync(userId);
     return this.notifications.getSubscriberToken(userId);
   }
 
@@ -45,10 +48,12 @@ export class NotificationsController {
 
   @Patch('preferences')
   @Protect('default')
-  updatePreferences(
+  async updatePreferences(
     @CurrentUserId() userId: string,
     @Body() dto: UpdateNotificationPreferencesDto,
   ) {
-    return this.preferences.updateForUser(userId, dto);
+    const updated = await this.preferences.updateForUser(userId, dto);
+    await this.subscribers.sync(userId);
+    return updated;
   }
 }

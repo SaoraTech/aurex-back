@@ -46,6 +46,28 @@ describe('NotificationsService', () => {
     });
   });
 
+  it('upserts a subscriber and subscribes it to the audience-filtered announcements topic', async () => {
+    const fetchMock = jest.spyOn(global, 'fetch')
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}) } as Response)
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}) } as Response);
+    const svc = createService({ novuApiKey: 'novu_test', novuApiUrl: 'https://api.novu.co' });
+
+    await expect(svc.syncSubscriber({
+      subscriberId: 'user_1',
+      email: 'user@example.com',
+      firstName: 'Aurex User',
+      plan: 'plus',
+      preferences: { editorialEmailEnabled: true, editorialPushEnabled: false, transactionalEmailEnabled: true, transactionalPushEnabled: true },
+    })).resolves.toMatchObject({ sent: true });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const topicCall = fetchMock.mock.calls[1];
+    expect(String(topicCall[0])).toContain('/v2/topics/announcements%3Aall/subscriptions');
+    const body = JSON.parse(String(topicCall[1]?.body));
+    expect(body.subscriptions[0]).toMatchObject({ identifier: 'user_1-announcements', subscriberId: 'user_1' });
+    expect(body.preferences[0].condition.or).toHaveLength(2);
+  });
+
   it('refuses to trigger a workflow without a recipient', async () => {
     const svc = createService({ novuApiKey: 'novu_test' });
     await expect(svc.triggerWorkflow({ workflowId: 'test_workflow' }))
