@@ -41,7 +41,7 @@ describe('NotificationsService', () => {
 
     const [, init] = fetchMock.mock.calls[0];
     expect(JSON.parse(String(init?.body))).toMatchObject({
-      name: 'aurex-announcement',
+      workflowId: 'aurex-announcement',
       to: { type: 'Topic', topicKey: 'announcements:plus' },
     });
   });
@@ -64,7 +64,9 @@ describe('NotificationsService', () => {
     const topicCall = fetchMock.mock.calls[1];
     expect(String(topicCall[0])).toContain('/v2/topics/announcements%3Aall/subscriptions');
     const body = JSON.parse(String(topicCall[1]?.body));
+    expect(body).toMatchObject({ name: 'Aurex announcements' });
     expect(body.subscriptions[0]).toMatchObject({ identifier: 'user_1-announcements', subscriberId: 'user_1' });
+    expect(body.preferences[0]).toMatchObject({ workflowId: 'aurex-announcement' });
     expect(body.preferences[0].condition.or).toHaveLength(2);
   });
 
