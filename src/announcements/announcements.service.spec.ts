@@ -127,7 +127,7 @@ describe('AnnouncementsService', () => {
     const published = await service.publish(created.id, 'admin_1');
     expect(published.status).toBe('published');
     expect(notificationsMock.triggerWorkflow).toHaveBeenCalledWith(expect.objectContaining({
-      topicKey: 'announcements:all',
+      topicKey: 'announcements:plus',
       workflowId: 'aurex-announcement',
       payload: expect.objectContaining({ targetAudience: 'plus', channels: ['push', 'email'] }),
     }));
