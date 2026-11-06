@@ -1,5 +1,6 @@
 import {
   ArrayNotEmpty,
+  ArrayUnique,
   IsArray,
   IsDateString,
   IsIn,
@@ -74,6 +75,7 @@ class CreateAnnouncementBodyDto {
   @IsOptional()
   @IsArray()
   @ArrayNotEmpty()
+  @ArrayUnique()
   @IsIn(['push', 'email'], { each: true })
   notificationChannels?: NotificationChannel[];
 }
