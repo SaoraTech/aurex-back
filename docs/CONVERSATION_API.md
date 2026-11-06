@@ -10,7 +10,8 @@ Authenticated routes; ownership is checked server-side.
 - DELETE /api/v1/conversations deletes all conversations owned by the current user.
 - PATCH /api/v1/conversations/:conversationId/messages/:messageId edits a user message.
 - POST /api/v1/chat/conversations/:conversationId/messages/:messageId/regenerate regenerates the latest assistant answer while preserving the previous answer as an alternative.
-- GET /api/v1/conversations/:conversationId/messages/:messageId/versions returns current and previous edited contents.
+- GET /api/v1/conversations/:conversationId/messages/:messageId/versions returns current, edited and regenerated alternatives.
+- POST /api/v1/conversations/:conversationId/messages/:messageId/versions/:versionId/restore restores a saved previous version.
 - DELETE /api/v1/conversations/:conversationId/messages/:messageId removes a message.
 - POST /api/v1/conversations/:conversationId/messages/:messageId/feedback accepts positive, negative or report; reports require a reason.
 
