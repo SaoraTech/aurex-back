@@ -2,7 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { DRIZZLE } from '../db/db.constants';
-import { announcement, auditEvent, payment, subscription, user } from '../db/schema';
+import { announcement, auditEvent, notificationDelivery, payment, subscription, user } from '../db/schema';
 
 function pageValue(value: string | undefined, fallback: number, max: number): number {
   const parsed = Number(value);
@@ -105,6 +105,20 @@ export class AdminService {
     const items = await this.db.select().from(announcement)
       .where(where)
       .orderBy(desc(announcement.createdAt))
+      .limit(limit)
+      .offset(offset);
+    return { items, limit, offset };
+  }
+
+  async listNotificationDeliveries(status?: string, category?: string, limitInput?: string, offsetInput?: string) {
+    const limit = pageValue(limitInput, 50, 100);
+    const offset = pageValue(offsetInput, 0, 1000000);
+    const conditions = [];
+    if (status) conditions.push(eq(notificationDelivery.status, status));
+    if (category) conditions.push(eq(notificationDelivery.category, category));
+    const items = await this.db.select().from(notificationDelivery)
+      .where(conditions.length ? and(...conditions) : undefined)
+      .orderBy(desc(notificationDelivery.createdAt))
       .limit(limit)
       .offset(offset);
     return { items, limit, offset };

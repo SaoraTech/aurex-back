@@ -48,6 +48,17 @@ export class AdminController {
     return this.admin.listSubscriptions(status, limit, offset);
   }
 
+  @Get('notifications/deliveries')
+  @Protect('read')
+  notificationDeliveries(
+    @Query('status') status?: string,
+    @Query('category') category?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
+    return this.admin.listNotificationDeliveries(status, category, limit, offset);
+  }
+
   @Get('settings')
   @Protect('read')
   settings() {

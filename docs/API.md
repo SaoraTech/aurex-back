@@ -13,6 +13,9 @@ Base path: /api/v1. Better Auth routes are mounted under /api/auth/*.
 | GET | /admin/billing/payments | Admin payment list | Admin |
 | GET | /admin/billing/subscriptions | Admin subscription list | Admin |
 | GET | /admin/settings | Safe integration configuration status (no secrets) | Admin |
+| GET | /admin/notifications/deliveries | Notification dispatch history and status | Admin |
+| GET | /notifications/preferences | Current editorial and transactional channel preferences | Yes |
+| PATCH | /notifications/preferences | Update editorial and transactional channel preferences | Yes |
 | GET/POST | /conversations | List/create conversations | Yes |
 | GET | /conversations/:id/messages | List messages owned by user | Yes |
 | DELETE | /conversations/:id | Delete owned conversation | Yes |
