@@ -48,7 +48,7 @@ export class AdminService {
   async listPayments(status?: string, limitInput?: string, offsetInput?: string) {
     const limit = pageValue(limitInput, 50, 100);
     const offset = pageValue(offsetInput, 0, 1000000);
-    const where = status ? eq(payment.status, status) : undefined;
+    const where = status ? eq(payment.status, status as typeof payment.$inferSelect.status) : undefined;
     const items = await this.db.select({
       id: payment.id,
       userId: payment.userId,
