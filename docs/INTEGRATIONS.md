@@ -94,9 +94,21 @@ Route policies are declared with @Protect(...). Authentication and route-specifi
 
 The bucket is private. Object ownership is enforced through database metadata, not a client-supplied object key. File signatures and plan-based size limits are checked. Malware scanning is not implemented; do not automatically execute or process uploaded documents as trusted content.
 
-## Tavily
+## Brave Search API — sole web-search provider
 
-Tavily is used for web search and bounded research workflows when enabled. External page content is untrusted input and must not be treated as instructions.
+The backend uses Brave's LLM Context endpoint (POST https://api.search.brave.com/res/v1/llm/context) for AI-oriented web search. It returns ranked source URLs, titles and pre-extracted relevant passages; Aurex does not need a second extraction or scraping request.
+
+Configuration:
+- BRAVE_SEARCH_ENABLED: explicit toggle, default false.
+- BRAVE_SEARCH_API_KEY: secret token sent only in the X-Subscription-Token header.
+- BRAVE_SEARCH_TIMEOUT_MS: request timeout, default 30,000 ms.
+- BRAVE_SEARCH_MAX_TOKENS: approximate context budget, default 8,192 (valid 1,024–32,768).
+- BRAVE_SEARCH_LANGUAGE: result language, default fr.
+- BRAVE_SEARCH_COUNTRY: optional two-letter country code; unset means provider default.
+
+The adapter uses a 10-minute in-process cache (shortened for fresh/news queries), no automatic retries, bounded result counts, safe typed errors and provider-level latency metrics. Chat context uses one query. Deep research uses Groq to plan a bounded list of queries, searches each query through Brave, deduplicates URLs, then asks Groq to synthesise only the retrieved source material with citations. Web passages are treated as untrusted data and fenced before reaching the model.
+
+The existing daily plan quotas remain unchanged. RESEARCH_MAX_SEARCHES caps deep-research query count (default 5); RESEARCH_DEADLINE_MS bounds the workflow (default 60 seconds). Search usage is recorded under provider brave_search. Tavily is no longer used or configured by Aurex.
 
 ## Observability
 
