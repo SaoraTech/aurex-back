@@ -1,3 +1,42 @@
+# Backend audit history and current status
+
+> Current status update — 6 November 2026. The detailed sections below this notice document an earlier audit snapshot and are retained as historical context. Any provider names or audio design decisions in that older snapshot are superseded by this addendum.
+
+## Current speech implementation
+
+- Azure AI Speech is the sole STT and TTS provider in the backend source.
+- The adapter is src/audio/azure-speech.service.ts; the audio module no longer registers an ElevenLabs adapter.
+- ElevenLabs adapter source has been removed and the environment schema no longer accepts ELEVENLABS_* variables.
+- STT uses Azure Fast Transcription REST API, version 2025-10-15; TTS uses the regional Speech synthesis REST endpoint.
+- Speech requests remain authenticated and protected by existing stt and tts route policies.
+- Audio type is detected from bytes; uploads are bounded and processed in memory.
+- No automatic provider fallback or retry is configured.
+- Azure keys are read only from backend environment configuration.
+
+## Plan quotas retained
+
+| Plan | STT requests/day | TTS characters/day |
+|---|---:|---:|
+| Free | 5 | 5,000 |
+| Plus | 30 | 30,000 |
+| Plus promo | 30 | 30,000 |
+| Pro | 100 | 100,000 |
+| Pro promo | 100 | 100,000 |
+
+STT quota remains request-count based. Actual transcription duration is recorded as stt_seconds for observability. A regional Azure STT rate has not been configured, so duration-based cost remains unknown. TTS quota is reserved by normalized character count.
+
+## Operational actions not performed by a GitHub change
+
+1. Configure Azure Speech resource key, region and resource name in Render.
+2. Remove the retired ELEVENLABS_* environment variables from Render.
+3. Revoke the old ElevenLabs key in the provider dashboard.
+4. Run build, lint, unit tests and live Azure French/English smoke tests.
+5. Enable AZURE_SPEECH_ENABLED=true only after live checks succeed.
+
+No Render deployment, Azure resource mutation, third-party credential revocation or database migration is performed by this repository change.
+
+---
+
 # Audit du Backend V1 d'Aurex — rapport initial et état consolidé
 
 > Méthode : lecture intégrale du code du ZIP (≈1 140 lignes, 63 fichiers `.ts`), sans se fier au README ni aux rapports antérieurs.
