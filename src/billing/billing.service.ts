@@ -258,7 +258,10 @@ export class BillingService {
     if (local.status === 'succeeded') {
       return { received: true, status: 'succeeded', alreadyProcessed: true };
     }
-    if (local.status === 'failed' && verified.status === 'failed') {
+    if (local.status === 'failed') {
+      if (verified.status === 'success') {
+        throw badRequest('INVALID_PAYMENT_TRANSITION', 'Un paiement déjà échoué ne peut pas être validé.');
+      }
       return { received: true, status: 'failed', alreadyProcessed: true };
     }
     if (local.status === 'cancelled' || local.status === 'refunded') {
@@ -366,11 +369,8 @@ export class BillingService {
             cancelAtPeriodEnd: false,
           }, tx);
         } else {
-          // Compatibility fallback for isolated legacy unit tests.
-          await tx.update(subscription).set({ status: 'canceled', updatedAt: now }).where(and(
-            eq(subscription.userId, local.userId),
-            eq(subscription.status, 'active'),
-          ));
+          // Compatibility fallback for isolated legacy unit tests. Preserve all
+          // provider subscription records; a local write cannot cancel a store.
           await tx.insert(subscription).values({
             id: newId(),
             userId: local.userId,
