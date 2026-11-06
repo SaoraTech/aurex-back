@@ -247,6 +247,7 @@ export class BillingWebhooksService {
           eq(subscription.provider, 'dodo_payments'),
           eq(subscription.providerSubscriptionId, providerSubscriptionId),
         ));
+        await this.entitlements.syncNotificationMembership(userId);
       }
       return { status: 'refunded' };
     }
@@ -265,6 +266,7 @@ export class BillingWebhooksService {
         eq(subscription.provider, 'dodo_payments'),
         eq(subscription.providerSubscriptionId, providerSubscriptionId),
       ));
+      await this.entitlements.syncNotificationMembership(userId);
       return { status: 'canceled' };
     }
 
@@ -280,6 +282,7 @@ export class BillingWebhooksService {
         await this.db.update(payment).set({ status: 'failed', rawStatus: type, updatedAt: new Date() })
           .where(and(eq(payment.id, localPayment.id), eq(payment.provider, 'dodo_payments')));
       }
+      await this.entitlements.syncNotificationMembership(userId);
       return { status: 'past_due' };
     }
 
