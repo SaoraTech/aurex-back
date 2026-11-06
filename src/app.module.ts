@@ -15,6 +15,7 @@ import { ChatModule } from './chat/chat.module';
 import { PlansModule } from './plans/plans.module';
 import { BillingModule } from './billing/billing.module';
 import { EntitlementsModule } from './entitlements/entitlements.module';
+import { AdminModule } from './admin/admin.module';
 import { MemoryModule } from './memory/memory.module';
 import { ArtifactsModule } from './artifacts/artifacts.module';
 import { LibraryModule } from './library/library.module';
@@ -43,6 +44,7 @@ import { QuotasModule } from './quotas/quotas.module';
     PlansModule,
     BillingModule,
     EntitlementsModule,
+    AdminModule,
     MemoryModule,
     ArtifactsModule,
     LibraryModule,
