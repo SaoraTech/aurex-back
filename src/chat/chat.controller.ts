@@ -70,20 +70,20 @@ export class ChatController {
           signal: abortController.signal,
           onToken: (delta) => {
             if (!response.writableEnded) {
-              response.write('event: delta\\ndata: ' + JSON.stringify({ delta }) + '\\n\\n');
+              response.write('event: delta\ndata: ' + JSON.stringify({ delta }) + '\n\n');
             }
           },
         },
       );
       if (!response.writableEnded) {
-        response.write('event: done\\ndata: ' + JSON.stringify(result) + '\\n\\n');
+        response.write('event: done\ndata: ' + JSON.stringify(result) + '\n\n');
       }
     } catch (error) {
       if (!response.writableEnded) {
         const payload = error instanceof HttpException
           ? error.getResponse()
           : { code: 'CHAT_GENERATION_FAILED', message: 'La génération a échoué.' };
-        response.write('event: error\\ndata: ' + JSON.stringify(payload) + '\\n\\n');
+        response.write('event: error\ndata: ' + JSON.stringify(payload) + '\n\n');
       }
     } finally {
       if (!response.writableEnded) response.end();
