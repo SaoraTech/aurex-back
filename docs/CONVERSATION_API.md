@@ -6,6 +6,7 @@ Authenticated routes; ownership is checked server-side.
 - GET /api/v1/conversations/:id/messages/page?limit=30&cursor=... loads older messages in chronological order.
 - PATCH /api/v1/conversations/:id with { title } renames a conversation.
 - POST /api/v1/conversations/:id/archive and /unarchive change archive state.
+- POST /api/v1/conversations/:id/pin and /unpin pin or unpin a conversation; the pinned flag is included in list/page results.
 - DELETE /api/v1/conversations deletes all conversations owned by the current user.
 - PATCH /api/v1/conversations/:conversationId/messages/:messageId edits a user message.
 - GET /api/v1/conversations/:conversationId/messages/:messageId/versions returns current and previous edited contents.
