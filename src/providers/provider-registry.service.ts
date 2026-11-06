@@ -34,7 +34,7 @@ export class ProviderRegistryService {
           azure: this.state(!!c('azureSpeechEnabled'), azureReady),
         },
         speechToText: {
-          elevenlabs: this.state(!!c('elevenLabsEnabled'), elevenReady),
+          azure: this.state(!!c('azureSpeechEnabled'), azureReady),
         },
       },
       storage: {
