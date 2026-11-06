@@ -6,7 +6,7 @@ import { CurrentUserId } from '../common/user.decorator';
 import { Protect } from '../security/protect.decorator';
 import { MessagesService } from './messages.service';
 class EditMessageDto { @IsString() @MinLength(1) @MaxLength(20000) content!:string; }
-class FeedbackDto { @IsIn(['positive','negative','report']) type!:'positive'|'negative'|'report'; @IsOptional() @IsString() @MaxLength(1000) reason?:string; }
+class FeedbackDto { @IsIn(['positive','negative','report','math_error']) type!:'positive'|'negative'|'report'|'math_error'; @IsOptional() @IsString() @MaxLength(1000) reason?:string; }
 @ApiTags('messages') @ApiBearerAuth() @UseGuards(RequireUserGuard) @Protect('read') @Controller('conversations/:conversationId/messages')
 export class MessagesController {
   constructor(private readonly messages:MessagesService){}
