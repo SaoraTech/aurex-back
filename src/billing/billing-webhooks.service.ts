@@ -230,7 +230,13 @@ export class BillingWebhooksService {
 
     const type = event.type.toLowerCase();
     if (type === 'payment.failed') {
-      if (localPayment) await this.db.update(payment).set({ status: 'failed', rawStatus: type, updatedAt: new Date() }).where(eq(payment.id, localPayment.id));
+      if (localPayment) await this.db.update(payment).set({ status: 'failed', rawStatus: type, updatedAt: new Date() }).where(and(
+        eq(payment.id, localPayment.id),
+        eq(payment.provider, 'dodo_payments'),
+        ne(payment.status, 'succeeded'),
+        ne(payment.status, 'refunded'),
+        ne(payment.status, 'cancelled'),
+      ));
       return { status: 'failed' };
     }
 
@@ -246,6 +252,9 @@ export class BillingWebhooksService {
     }
 
     if (type === 'subscription.cancelled' || type === 'subscription.canceled') {
+      if (!providerSubscriptionId) {
+        throw badRequest('DODO_SUBSCRIPTION_ID_MISSING', 'L’événement d’annulation Dodo ne contient pas de référence d’abonnement.');
+      }
       const end = this.toDate(data.current_period_end ?? data.next_billing_date);
       await this.db.update(subscription).set({
         status: end && end > new Date() ? 'active' : 'canceled',
@@ -260,6 +269,9 @@ export class BillingWebhooksService {
     }
 
     if (type === 'subscription.on_hold' || type === 'subscription.failed') {
+      if (!providerSubscriptionId) {
+        throw badRequest('DODO_SUBSCRIPTION_ID_MISSING', 'L’événement de facturation Dodo ne contient pas de référence d’abonnement.');
+      }
       await this.db.update(subscription).set({ status: 'past_due', updatedAt: new Date() }).where(and(
         eq(subscription.provider, 'dodo_payments'),
         eq(subscription.providerSubscriptionId, providerSubscriptionId),
@@ -276,7 +288,11 @@ export class BillingWebhooksService {
       // Payment confirmation is financial state; subscription events grant access.
       if (localPayment) {
         await this.db.update(payment).set({ status: 'succeeded', rawStatus: type, updatedAt: new Date() })
-          .where(and(eq(payment.id, localPayment.id), eq(payment.provider, 'dodo_payments')));
+          .where(and(
+            eq(payment.id, localPayment.id),
+            eq(payment.provider, 'dodo_payments'),
+            or(eq(payment.status, 'pending'), eq(payment.status, 'processing')),
+          ));
       }
       return { status: 'succeeded', subscriptionActivated: false };
     }
@@ -284,6 +300,15 @@ export class BillingWebhooksService {
     if (type === 'subscription.active' || type === 'subscription.renewed' || type === 'subscription.plan_changed') {
       if (!providerSubscriptionId) {
         throw badRequest('DODO_SUBSCRIPTION_ID_MISSING', 'L’événement Dodo ne contient pas de référence d’abonnement vérifiable.');
+      }
+      if (type === 'subscription.plan_changed' && !productPlan) {
+        throw badRequest('DODO_PRODUCT_NOT_MAPPED', 'Le produit du changement de plan Dodo ne correspond à aucun plan Aurex configuré.');
+      }
+      if (type !== 'subscription.plan_changed' && metadata.plan && productPlan && metadata.plan !== productPlan) {
+        throw badRequest('DODO_PRODUCT_PLAN_MISMATCH', 'Le produit Dodo ne correspond pas au plan Aurex attendu.');
+      }
+      if (type !== 'subscription.plan_changed' && localPayment?.plan && productPlan && localPayment.plan !== productPlan) {
+        throw badRequest('DODO_PAYMENT_PLAN_MISMATCH', 'Le produit Dodo ne correspond pas au plan de paiement local.');
       }
       const now = new Date();
       if (localPayment) {
