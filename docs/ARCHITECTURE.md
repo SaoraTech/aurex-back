@@ -14,11 +14,8 @@ Mobile / Web / Desktop clients
              |
     +--------+---------+-------------+
     |                  |             |
-   Groq              SMP (planned)  Azure AI Speech
-  (LLM)          (deterministic     (STT + TTS)
-                   math)
-             |
-       Neon PostgreSQL
+   Groq           Azure AI Speech  Neon PostgreSQL
+  (LLM)              (STT + TTS)
 ~~~
 
 Aurex is a modular NestJS backend. Authorization, effective plan resolution and quota enforcement remain server-side. Clients never submit authoritative plan names, quotas, payment state or provider credentials.
