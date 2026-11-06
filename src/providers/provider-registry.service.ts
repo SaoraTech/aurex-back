@@ -46,9 +46,6 @@ export class ProviderRegistryService {
           !!c('r2AccountId') && !!c('r2Bucket') && !!c('r2AccessKeyId') && !!c('r2SecretAccessKey'),
         ),
       },
-      math: {
-        smp: 'not_implemented' as ProviderState,
-      },
       security: {
         arcjet: c('arcjetMode') === 'disabled' ? ('disabled' as ProviderState) : this.state(true, !!c('arcjetKey')),
       },
