@@ -172,43 +172,62 @@ export class NotificationsService {
         return { sent: false, reason: `subscriber_http_${response.status}` };
       }
 
-      const topicKey = 'announcements:all';
       const identifier = `${input.subscriberId}-announcements`;
-      const preferences = [{
-        workflowId: 'aurex-announcement',
-        condition: {
-          or: [
-            { '===': [{ var: 'payload.targetAudience' }, 'all'] },
-            { '===': [{ var: 'subscriber.data.plan' }, { var: 'payload.targetAudience' }] },
-          ],
-        },
-      }];
-      const topicUrl = `${baseUrl}/v2/topics/${encodeURIComponent(topicKey)}/subscriptions`;
-      const topicBody = {
-        subscriptions: [{ identifier, subscriberId: input.subscriberId }],
-        name: 'Aurex announcements',
-        preferences,
-      };
-
-      response = await fetchWithTimeout(
-        'novu',
-        topicUrl,
-        { method: 'POST', headers, body: JSON.stringify(topicBody) },
-        5000,
-      );
-
-      if (response.status === 409) {
-        response = await fetchWithTimeout(
+      const syncTopic = async (topicKey: string, name: string) => {
+        const topicUrl = `${baseUrl}/v2/topics/${encodeURIComponent(topicKey)}/subscriptions`;
+        const topicBody = {
+          subscriptions: [{ identifier, subscriberId: input.subscriberId }],
+          name,
+        };
+        let topicResponse = await fetchWithTimeout(
           'novu',
-          `${topicUrl}/${encodeURIComponent(identifier)}`,
-          { method: 'PATCH', headers, body: JSON.stringify({ name: 'Aurex announcements', preferences }) },
+          topicUrl,
+          { method: 'POST', headers, body: JSON.stringify(topicBody) },
           5000,
         );
+
+        if (topicResponse.status === 409) {
+          topicResponse = await fetchWithTimeout(
+            'novu',
+            `${topicUrl}/${encodeURIComponent(identifier)}`,
+            { method: 'PATCH', headers, body: JSON.stringify({ name }) },
+            5000,
+          );
+        }
+        return topicResponse;
+      };
+
+      // All users receive global announcements; a second topic isolates the
+      // current commercial audience without relying on undocumented filter context.
+      for (const [topicKey, name] of [
+        ['announcements:all', 'Aurex announcements'],
+        [`announcements:${input.plan}`, `Aurex announcements — ${input.plan}`],
+      ]) {
+        const topicResponse = await syncTopic(topicKey, name);
+        if (!topicResponse.ok) {
+          this.logger.warn({ msg: 'novu_topic_subscription_rejected', status: topicResponse.status, topicKey });
+          return { sent: false, reason: `topic_http_${topicResponse.status}` };
+        }
       }
 
-      if (!response.ok) {
-        this.logger.warn({ msg: 'novu_topic_subscription_rejected', status: response.status });
-        return { sent: false, reason: `topic_http_${response.status}` };
+      // Remove stale plan memberships after the current plan is confirmed.
+      for (const stalePlan of (['free', 'plus', 'pro'] as const).filter(plan => plan !== input.plan)) {
+        const staleTopicKey = `announcements:${stalePlan}`;
+        const staleUrl = `${baseUrl}/v2/topics/${encodeURIComponent(staleTopicKey)}/subscriptions`;
+        const staleResponse = await fetchWithTimeout(
+          'novu',
+          staleUrl,
+          {
+            method: 'DELETE',
+            headers,
+            body: JSON.stringify({ subscriptions: [{ identifier, subscriberId: input.subscriberId }] }),
+          },
+          5000,
+        );
+        if (!staleResponse.ok && staleResponse.status !== 404) {
+          this.logger.warn({ msg: 'novu_stale_topic_unsubscribe_rejected', status: staleResponse.status, topicKey: staleTopicKey });
+          return { sent: false, reason: `topic_unsubscribe_http_${staleResponse.status}` };
+        }
       }
 
       return { sent: true };
