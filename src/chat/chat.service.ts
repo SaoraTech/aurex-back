@@ -8,7 +8,6 @@ import { ConversationsService } from '../conversations/conversations.service';
 import { DRIZZLE } from '../db/db.constants';
 import { auditEvent, conversation, memoryItem, message } from '../db/schema';
 import { IdentityService } from '../identity/identity.service';
-import { MathService } from '../math/math.service';
 import { UsageService } from '../observability/usage.service';
 import { PlanName, PlansService } from '../plans/plans.service';
 import { QuotasService } from '../quotas/quotas.service';
@@ -35,7 +34,6 @@ export class ChatService {
     private readonly quotas: QuotasService,
     private readonly identity: IdentityService,
     private readonly research: WebResearchService,
-    private readonly math: MathService,
     private readonly usage: UsageService,
   ) {}
 
@@ -148,13 +146,6 @@ export class ChatService {
           provider: existing.provider,
           model: existing.model,
           webSearch: webSummaryFromRow(existing),
-          mathComputation: existing.mathResult
-            ? {
-                input: existing.mathInput,
-                result: existing.mathResult,
-                latex: existing.computation,
-              }
-            : null,
           idempotentReplay: true,
         };
       }
@@ -265,81 +256,7 @@ export class ChatService {
         .orderBy(desc(memoryItem.updatedAt))
         .limit(10);
 
-      // 4. Orchestration with SMP (intent detection; computation unavailable until SMP is implemented)
-      let mathData: {
-        operation: string;
-        expression: string;
-        latex?: string;
-        plainText?: string;
-        steps?: string[];
-        verified: boolean;
-        error?: string;
-      } | null = null;
-
-      const detectedMath = this.math.detectAndSolve(input.content);
-      if (detectedMath) {
-        this.logger.log({
-          msg: 'math_intent_detected',
-          operation: detectedMath.operation,
-          expression: detectedMath.expression,
-        });
-
-        // Reserve math quota atomically
-        const mathOpId = newId();
-        const mathQuota = await this.quotas.reserveQuota(
-          userId,
-          'math_compute',
-          plan,
-          mathOpId,
-        );
-
-        if (mathQuota.allowed) {
-          try {
-            const mathResult = await this.math.compute(
-              userId,
-              detectedMath,
-              input.requestId,
-            );
-            if (mathResult.status === 'verified') {
-              mathData = {
-                operation: detectedMath.operation,
-                expression: detectedMath.expression,
-                latex: mathResult.latex,
-                plainText: mathResult.plainText,
-                steps: mathResult.steps,
-                verified: true,
-              };
-              await this.quotas.commitQuota(mathOpId);
-            } else {
-              mathData = {
-                operation: detectedMath.operation,
-                expression: detectedMath.expression,
-                verified: false,
-                error: mathResult.error ?? 'Calcul non vérifié : SMP n’est pas encore opérationnel',
-              };
-              // Don't charge quota for unverified/failed calculation
-              await this.quotas.compensateQuota(mathOpId);
-            }
-          } catch (err: any) {
-            await this.quotas.compensateQuota(mathOpId);
-            mathData = {
-              operation: detectedMath.operation,
-              expression: detectedMath.expression,
-              verified: false,
-              error: err.message ?? 'SMP n’est pas encore opérationnel',
-            };
-          }
-        } else {
-          mathData = {
-            operation: detectedMath.operation,
-            expression: detectedMath.expression,
-            verified: false,
-            error: 'Quota quotidien de calcul mathématique atteint pour ce plan',
-          };
-        }
-      }
-
-      // 5. Web Search Research Context
+      // 4. Web Search Research Context
       const web = await this.research.chatContext(
         userId,
         input.content,
@@ -347,37 +264,16 @@ export class ChatService {
         correlationId,
       );
 
-      // 6. Construct System Instruction with Math Verification & Web Context
-      let mathInstruction = '';
-      if (mathData) {
-        if (mathData.verified) {
-          mathInstruction = `\n\n[CALCUL VÉRIFIÉ PAR LE MOTEUR SMP]
-Opération : ${mathData.operation}
-Expression : ${mathData.expression}
-Résultat exact : ${mathData.plainText ?? mathData.latex}
-${mathData.latex ? `LaTeX : ${mathData.latex}` : ''}
-${mathData.steps?.length ? `Étapes de calcul : ${mathData.steps.join(' -> ')}` : ''}
-INSTRUCTION STRICTE : Le calcul exact ci-dessus a été formellement calculé et vérifié par le moteur SMP. Tu DOIS impérativement t'appuyer sur cette valeur exacte dans ton explication pédagogique en français, sans modifier le résultat mathématique.`;
-        } else {
-          mathInstruction = `\n\n[NOTE SMP : MOTEUR NON OPÉRATIONNEL]
-Opération détectée : ${mathData.operation}
-Expression : ${mathData.expression}
-Raison : ${mathData.error}
-INSTRUCTION STRICTE : SMP n'est pas encore opérationnel. Tu DOIS indiquer avec transparence que le calcul n'a pas été vérifié par un moteur mathématique déterministe. Tu peux expliquer une méthode de résolution, mais ne présente jamais le résultat comme formellement vérifié.`;
-        }
-      }
-
-      const systemInstruction =
-        this.identity.buildSystemInstruction({
-          userMemory: pinned,
-          conversation: { subject: convo.subject, title: convo.title },
-          web: {
-            requested: web.summary.requested,
-            performed: web.summary.performed,
-            failureCode: web.summary.failureCode,
-            sourceCount: web.summary.sources.length,
-          },
-        }) + mathInstruction;
+      const systemInstruction = this.identity.buildSystemInstruction({
+        userMemory: pinned,
+        conversation: { subject: convo.subject, title: convo.title },
+        web: {
+          requested: web.summary.requested,
+          performed: web.summary.performed,
+          failureCode: web.summary.failureCode,
+          sourceCount: web.summary.sources.length,
+        },
+      });
 
       // Web content is appended to CURRENT user turn for the model call only
       if (web.block && history.length) {
@@ -418,9 +314,6 @@ INSTRUCTION STRICTE : SMP n'est pas encore opérationnel. Tu DOIS indiquer avec 
         conversationId: convo.id,
         role: 'assistant' as const,
         content: result.text,
-        mathInput: mathData ? JSON.stringify(mathData.expression) : null,
-        mathResult: mathData?.plainText ?? null,
-        computation: mathData?.latex ?? null,
         provider: result.provider,
         model: result.model,
         latencyMs: result.latencyMs ?? null,
@@ -460,7 +353,6 @@ INSTRUCTION STRICTE : SMP n'est pas encore opérationnel. Tu DOIS indiquer avec 
               provider: existing.provider,
               model: existing.model,
               webSearch: webSummaryFromRow(existing),
-              mathComputation: mathData,
               idempotentReplay: true,
             };
           }
@@ -474,7 +366,6 @@ INSTRUCTION STRICTE : SMP n'est pas encore opérationnel. Tu DOIS indiquer avec 
         provider: result.provider,
         model: result.model,
         webSearch: web.summary,
-        mathComputation: mathData,
       };
     } catch (err) {
       // Preserve any streamed text so the client can recover an interrupted answer.
