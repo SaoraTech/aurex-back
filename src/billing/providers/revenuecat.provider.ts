@@ -11,6 +11,8 @@ export interface RevenueCatEvent {
   productId?: string;
   transactionId?: string;
   expirationAtMs?: number;
+  transferredFrom?: string[];
+  transferredTo?: string[];
 }
 
 @Injectable()
@@ -63,6 +65,8 @@ export class RevenueCatProvider {
       productId: event.product_id ? String(event.product_id) : undefined,
       transactionId: event.transaction_id ? String(event.transaction_id) : undefined,
       expirationAtMs: event.expiration_at_ms ? Number(event.expiration_at_ms) : undefined,
+      transferredFrom: Array.isArray(event.transferred_from) ? event.transferred_from.map(String) : [],
+      transferredTo: Array.isArray(event.transferred_to) ? event.transferred_to.map(String) : [],
     };
   }
 
