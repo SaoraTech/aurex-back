@@ -22,9 +22,9 @@ export class AzureSpeechService{
   const {key,region}=this.credentials;
   const locale=localeFor(language);
   const voice=language==='en'?(this.config.get<string>('azureSpeechTtsVoiceEn')??'en-US-JennyNeural'):(this.config.get<string>('azureSpeechTtsVoiceFr')??'fr-FR-DeniseNeural');
-  const ssml=\`<speak version="1.0" xmlns="\${SSML_NS}" xml:lang="\${locale}"><voice name="\${escapeXml(voice)}">\${escapeXml(text)}</voice></speak>\`;
+  const ssml=`<speak version="1.0" xmlns="${SSML_NS}" xml:lang="${locale}"><voice name="${escapeXml(voice)}">${escapeXml(text)}</voice></speak>`;
   return this.metrics.track('azure-speech','tts',async()=>{
-   const res=await fetchWithTimeout('azure-speech',\`https://\${region}.tts.speech.microsoft.com/cognitiveservices/v1\`,{
+   const res=await fetchWithTimeout('azure-speech',`https://${region}.tts.speech.microsoft.com/cognitiveservices/v1`,{
     method:'POST',headers:{'Ocp-Apim-Subscription-Key':key,'Content-Type':'application/ssml+xml',
      'X-Microsoft-OutputFormat':this.config.get<string>('azureSpeechTtsOutputFormat')??'audio-16khz-128kbitrate-mono-mp3',
      'User-Agent':'AurexBackend/1.0',Accept:'audio/mpeg'},body:ssml,
@@ -43,7 +43,7 @@ export class AzureSpeechService{
    const form=new FormData();
    form.set('audio',new Blob([new Uint8Array(audio)],{type:mimeType}),filename);
    form.set('definition',JSON.stringify({locales:[localeFor(language)]}));
-   const url=\`https://\${resource}.cognitiveservices.azure.com/speechtotext/transcriptions:transcribe?api-version=\${API_VERSION}\`;
+   const url=`https://${resource}.cognitiveservices.azure.com/speechtotext/transcriptions:transcribe?api-version=${API_VERSION}`;
    const res=await fetchWithTimeout('azure-speech',url,{method:'POST',headers:{'Ocp-Apim-Subscription-Key':key,Accept:'application/json'},body:form},this.timeout);
    assertOk('azure-speech',res,kindFromStatus);
    let payload:{durationMilliseconds?:unknown;combinedPhrases?:Array<{text?:unknown;locale?:unknown}>};
