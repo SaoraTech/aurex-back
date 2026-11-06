@@ -18,6 +18,7 @@ Legacy list and message endpoints keep their array responses for mobile compatib
 
 ## Generation streaming and cancellation
 - POST /api/v1/chat/messages/stream accepts the same payload as /messages and emits Server-Sent Events: delta, done or error.
+- GET /api/v1/chat/generations/:requestId reports whether a generation is active on this backend instance.
 - POST /api/v1/chat/generations/:requestId/cancel aborts an active Groq request for the authenticated user.
 - Partial streamed text is persisted as an interrupted assistant message and excluded from later model context; clients can display it and retry using a new request ID.
 - The legacy POST /api/v1/chat/messages remains available and returns a complete JSON response.
