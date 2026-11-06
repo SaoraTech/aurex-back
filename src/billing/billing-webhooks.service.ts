@@ -64,7 +64,7 @@ export class BillingWebhooksService {
     const eventId = String(
       notification.notificationId ??
       notification.eventId ??
-      `${subscriptionId}:${notification.notificationType ?? 'subscription'}:${purchaseToken}`,
+      `${subscriptionId}:${notification.notificationType ?? 'subscription'}:${purchaseToken}:${notification.expirationDate ?? notification.expirationTime ?? notification.purchaseTime ?? notification.eventTime ?? 'unknown'}`,
     );
     const eventType = String(notification.notificationType ?? 'subscription.status_changed');
 
@@ -77,7 +77,7 @@ export class BillingWebhooksService {
         userId: verified.userId,
         plan: verified.plan,
         provider: 'huawei_iap',
-        providerSubscriptionId: verified.subscriptionId,
+        providerSubscriptionId: verified.purchaseToken,
         status: verified.isActive ? 'active' : 'expired',
         currentPeriodStart: verified.purchaseTime,
         currentPeriodEnd: verified.expirationDate,
