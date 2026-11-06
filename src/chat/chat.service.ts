@@ -181,7 +181,7 @@ export class ChatService {
     };
 
     // 2. Atomic quota reservation.
-    const opId = input.requestId ?? newId();
+    const opId = newId(); // One quota reservation per attempt; requestId remains the message idempotency key.
     let quotaRes: any;
     try {
       quotaRes = await this.quotas.reserveQuota(userId, 'daily_messages', plan, opId);
