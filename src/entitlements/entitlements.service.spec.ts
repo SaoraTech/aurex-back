@@ -61,7 +61,8 @@ describe('EntitlementsService', () => {
     };
     const db = { transaction: jest.fn(async (callback: (executor: any) => Promise<any>) => callback(tx)) };
     const plans = { getSubscriptionInfo: jest.fn(), getLimits: jest.fn() };
-    const service = new EntitlementsService(plans as any, db as any);
+    const notificationSubscribers = { sync: jest.fn().mockResolvedValue({ sent: true }) };
+    const service = new EntitlementsService(plans as any, db as any, notificationSubscribers as any);
 
     const result = await service.activateSubscription({
       userId: 'user_1',
@@ -77,6 +78,7 @@ describe('EntitlementsService', () => {
     expect(result.id).toBe('sub_new');
     expect(db.transaction).toHaveBeenCalledTimes(1);
     expect(tx.update).not.toHaveBeenCalled();
+    expect(notificationSubscribers.sync).toHaveBeenCalledWith('user_1');
   });
 
 });
