@@ -33,10 +33,10 @@ export class MessagesService {
     await this.db.update(conversation).set({updatedAt:new Date()}).where(eq(conversation.id,conversationId));
     return {deleted:true,messageId};
   }
-  async feedback(userId:string,conversationId:string,messageId:string,input:{type:'positive'|'negative'|'report';reason?:string}){
+  async feedback(userId:string,conversationId:string,messageId:string,input:{type:'positive'|'negative'|'report'|'math_error';reason?:string}){
     const item=await this.getOwnedMessage(userId,conversationId,messageId);
     if(item.role!=='assistant') throw new BadRequestException('Feedback can only target assistant messages');
-    if(input.type==='report'&&!input.reason?.trim()) throw new BadRequestException('A reason is required when reporting a message');
+    if((input.type==='report'||input.type==='math_error')&&!input.reason?.trim()) throw new BadRequestException('A reason is required for this feedback type');
     await this.db.insert(auditEvent).values({id:newId(),actorUserId:userId,action:'message.feedback',targetType:'message',targetId:messageId,metadata:{type:input.type,reason:input.reason?.trim().slice(0,1000)??null},createdAt:new Date()});
     return {recorded:true,type:input.type,messageId};
   }
