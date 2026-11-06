@@ -1,5 +1,5 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
-import { and, desc, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { DRIZZLE } from '../db/db.constants';
 import { announcement, announcementRead, notificationDelivery } from '../db/schema';
 import { newId } from '../common/ids';
