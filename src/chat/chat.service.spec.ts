@@ -240,4 +240,23 @@ describe('ChatService - Groq & SageMath Orchestration, Atomic Quotas & Idempoten
     expect(mockQuotas.reserveQuota).not.toHaveBeenCalled();
     expect(mockAi.generate).not.toHaveBeenCalled();
   });
+  it('persists streamed partial output when generation is interrupted', async () => {
+    const deltas: string[] = [];
+    mockAi.generate.mockImplementation(async (_plan: any, _history: any, _model: any, options: any) => {
+      options.onToken?.('Réponse partielle');
+      throw new Error('Generation cancelled');
+    });
+
+    await expect(svc.send(
+      'u1',
+      { content: 'Explique les limites', requestId: 'req_stream_partial' },
+      'corr_stream_partial',
+      { onToken: (delta) => deltas.push(delta) },
+    )).rejects.toThrow('Generation cancelled');
+
+    expect(deltas).toEqual(['Réponse partielle']);
+    expect(mockDb.insert).toHaveBeenCalledTimes(2);
+    expect(mockQuotas.compensateQuota).toHaveBeenCalledWith('req_stream_partial');
+  });
+
 });
