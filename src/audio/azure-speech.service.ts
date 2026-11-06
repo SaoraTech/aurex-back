@@ -32,7 +32,9 @@ export class AzureSpeechService{
    assertOk('azure-speech',res,kindFromStatus);
    const audio=Buffer.from(await res.arrayBuffer());
    if(!audio.length)throw new ProviderError('azure-speech','bad_response','Azure returned empty audio');
-   return {audio,contentType:res.headers.get('content-type')?.split(';')[0]||'audio/mpeg'};
+   const contentType=res.headers.get('content-type')?.split(';')[0]||'audio/mpeg';
+   if(!contentType.startsWith('audio/'))throw new ProviderError('azure-speech','bad_response','Azure returned a non-audio response');
+   return {audio,contentType};
   });
  }
  async transcribe(audio:Buffer,mimeType:string,filename:string,language='fr'):Promise<{text:string;languageCode?:string;durationMilliseconds:number}>{
