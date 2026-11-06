@@ -185,6 +185,7 @@ export class BillingWebhooksService {
 
   private async applyDodoEvent(event: { type: string; data: Record<string, any> }) {
     const data = event.data;
+    const type = event.type.toLowerCase();
     const metadata = data.metadata ?? data.subscription?.metadata ?? {};
     const localPaymentId = String(metadata.localPaymentId ?? '');
     const providerSubscriptionId = String(data.subscription_id ?? data.subscription?.id ?? '');
@@ -218,7 +219,7 @@ export class BillingWebhooksService {
       return { ignored: true, reason: 'LOCAL_REFERENCE_NOT_FOUND' };
     }
     if (metadata.userId && metadata.userId !== userId) throw badRequest('DODO_USER_MISMATCH', 'Utilisateur Dodo incohérent.');
-    if (metadata.plan && metadata.plan !== plan) throw badRequest('DODO_PLAN_MISMATCH', 'Plan Dodo incohérent.');
+    if (type !== 'subscription.plan_changed' && metadata.plan && metadata.plan !== plan) throw badRequest('DODO_PLAN_MISMATCH', 'Plan Dodo incohérent.');
 
     if (localPayment && data.currency && String(data.currency).toUpperCase() !== localPayment.currency) {
       throw badRequest('DODO_CURRENCY_MISMATCH', 'La devise Dodo ne correspond pas à la commande.');
@@ -228,7 +229,6 @@ export class BillingWebhooksService {
       throw badRequest('DODO_AMOUNT_MISMATCH', 'Le montant Dodo ne correspond pas à la commande.');
     }
 
-    const type = event.type.toLowerCase();
     if (type === 'payment.failed') {
       if (localPayment) await this.db.update(payment).set({ status: 'failed', rawStatus: type, updatedAt: new Date() }).where(and(
         eq(payment.id, localPayment.id),
