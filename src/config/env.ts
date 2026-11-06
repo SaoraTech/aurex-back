@@ -33,9 +33,13 @@ export const EnvSchema = z.object({
   ARCJET_KEY: optStr, ARCJET_MODE: z.enum(['live','dry_run','disabled']).optional(),
   ARCJET_ALLOW_DISABLED_IN_PRODUCTION: bool,
   R2_ENABLED: bool, R2_ACCOUNT_ID: optStr, R2_BUCKET: optStr, R2_ACCESS_KEY_ID: optStr, R2_SECRET_ACCESS_KEY: optStr,
-  TAVILY_ENABLED: bool, TAVILY_API_KEY: optStr,
-  RESEARCH_MAX_SEARCHES: z.coerce.number().default(5), RESEARCH_MAX_EXTRACTS: z.coerce.number().default(3),
-  RESEARCH_DEADLINE_MS: z.coerce.number().default(60000),
+  BRAVE_SEARCH_ENABLED: bool, BRAVE_SEARCH_API_KEY: optStr,
+  BRAVE_SEARCH_TIMEOUT_MS: z.coerce.number().int().positive().default(30000),
+  BRAVE_SEARCH_MAX_TOKENS: z.coerce.number().int().min(1024).max(32768).default(8192),
+  BRAVE_SEARCH_LANGUAGE: z.string().min(2).default('fr'),
+  BRAVE_SEARCH_COUNTRY: z.string().regex(/^[A-Z]{2}$/).optional(),
+  RESEARCH_MAX_SEARCHES: z.coerce.number().int().min(1).max(10).default(5),
+  RESEARCH_DEADLINE_MS: z.coerce.number().int().positive().default(60000),
   PLAN_LIMITS_JSON: z.string().default(DEFAULT_LIMITS),
   PLAN_PRICES_JSON: z.string().default('{"free":0,"plus":5000,"pro":10000,"plus_promo":1500,"pro_promo":3000}'),
   TRUSTED_ORIGINS: z.string().optional().default(''), CORS_ORIGIN: z.string().optional().default(''),
@@ -48,7 +52,7 @@ export const EnvSchema = z.object({
     need(!!v.AZURE_SPEECH_RESOURCE_NAME && /^[a-z0-9-]{2,64}$/i.test(v.AZURE_SPEECH_RESOURCE_NAME),'AZURE_SPEECH_RESOURCE_NAME','A valid Speech resource name is required when AZURE_SPEECH_ENABLED=true');
   }
   if(v.R2_ENABLED==='true') for(const k of ['R2_ACCOUNT_ID','R2_ACCESS_KEY_ID','R2_SECRET_ACCESS_KEY'] as const) need(!!v[k],k,'Required when R2_ENABLED=true');
-  if(v.TAVILY_ENABLED==='true') need(!!v.TAVILY_API_KEY,'TAVILY_API_KEY','Required when TAVILY_ENABLED=true');
+  if(v.BRAVE_SEARCH_ENABLED==='true') need(!!v.BRAVE_SEARCH_API_KEY,'BRAVE_SEARCH_API_KEY','Required when BRAVE_SEARCH_ENABLED=true');
   const mode=v.ARCJET_MODE??(v.ARCJET_KEY?'live':'disabled');
   if(mode!=='disabled')need(!!v.ARCJET_KEY,'ARCJET_KEY','Required when ARCJET_MODE is live or dry_run');
   if(v.NODE_ENV==='production'&&mode==='disabled')need(v.ARCJET_ALLOW_DISABLED_IN_PRODUCTION==='true','ARCJET_MODE','Arcjet must be active in production or explicitly acknowledged');
