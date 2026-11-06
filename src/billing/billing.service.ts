@@ -160,7 +160,7 @@ export class BillingService {
       const checkoutRes = providerName === 'dodo_payments'
         ? await this.dodo!.initiateCheckout({
             userId, email, plan, amount, currency: 'XOF', paymentMethod: 'card', returnUrl,
-            localPaymentId, idempotencyKey: `${finalIdempotencyKey}:${localPaymentId}`,
+            localPaymentId, idempotencyKey: finalIdempotencyKey,
           })
         : await this.jemenipay.initiateCheckout({
             userId, email, plan, amount, currency: 'XOF', paymentMethod, returnUrl,
