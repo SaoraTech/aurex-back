@@ -348,9 +348,12 @@ export class BillingWebhooksService {
 
     const isActive = (entry: any) => {
       if (!entry) return false;
-      if (!entry.expires_date) return true;
-      const expiry = new Date(entry.expires_date);
-      return Number.isFinite(expiry.getTime()) && expiry > now;
+      const expirations = [entry.expires_date, entry.grace_period_expires_date]
+        .filter(Boolean)
+        .map((value: string) => new Date(value))
+        .filter((value: Date) => Number.isFinite(value.getTime()));
+      if (expirations.length === 0) return true;
+      return Math.max(...expirations.map((value: Date) => value.getTime())) > now.getTime();
     };
 
     const proEntitlement = entitlements[ids.pro ?? ''];
@@ -358,34 +361,64 @@ export class BillingWebhooksService {
     const plan = isActive(proEntitlement) ? 'pro' : isActive(plusEntitlement) ? 'plus' : null;
     const activeEntitlement = plan === 'pro' ? proEntitlement : plan === 'plus' ? plusEntitlement : null;
 
-    const candidates = [event.appUserId, event.originalAppUserId].filter(Boolean) as string[];
-    let userId: string | undefined;
+    const sourceIds = [...new Set(event.transferredFrom ?? [])];
+    if (String(event.type ?? '').toUpperCase() === 'TRANSFER') {
+      for (const sourceId of sourceIds) {
+        const [sourceUser] = await this.db.select({ id: user.id }).from(user).where(eq(user.id, sourceId)).limit(1);
+        if (sourceUser) {
+          await this.entitlements.expireProviderSubscriptions(sourceUser.id, 'revenuecat');
+        }
+      }
+    }
+
+    const candidates = [...new Set([
+      ...(event.transferredTo ?? []),
+      event.appUserId,
+      event.originalAppUserId,
+    ].filter(Boolean) as string[])];
+    const matchedUsers: Array<{ userId: string; appUserId: string }> = [];
     for (const candidate of candidates) {
       const [found] = await this.db.select({ id: user.id }).from(user).where(eq(user.id, candidate)).limit(1);
-      if (found) { userId = found.id; break; }
+      if (found && !matchedUsers.some(item => item.userId === found.id)) {
+        matchedUsers.push({ userId: found.id, appUserId: candidate });
+      }
     }
-    if (!userId) throw notFound('REVENUECAT_USER_NOT_FOUND', 'Utilisateur Aurex associé à l’achat RevenueCat introuvable.');
-
-    if (!plan) {
-      await this.entitlements.expireProviderSubscriptions(userId, 'revenuecat');
-      return { status: 'expired', plan: 'free' };
+    if (matchedUsers.length === 0) {
+      throw notFound('REVENUECAT_USER_NOT_FOUND', 'Utilisateur Aurex associé à l’achat RevenueCat introuvable.');
     }
 
-    const periodStart = this.toDate(activeEntitlement.purchase_date) ?? now;
-    const periodEnd = this.toDate(activeEntitlement.expires_date);
-    const providerSubscriptionId = String(subscriber.original_app_user_id ?? event.originalAppUserId ?? event.appUserId);
-    await this.upsertSubscription({
-      userId,
-      plan,
-      provider: 'revenuecat',
-      providerSubscriptionId,
-      status: 'active',
-      currentPeriodStart: periodStart,
-      currentPeriodEnd: periodEnd,
-      cancelAtPeriodEnd: false,
-    });
+    let activated = 0;
+    for (const match of matchedUsers) {
+      const customerResponse = await this.revenueCat.getSubscriber(match.appUserId);
+      const customer = customerResponse.subscriber ?? customerResponse;
+      const customerEntitlements = customer.entitlements ?? {};
+      const customerPro = customerEntitlements[ids.pro ?? ''];
+      const customerPlus = customerEntitlements[ids.plus ?? ''];
+      const customerPlan = isActive(customerPro) ? 'pro' : isActive(customerPlus) ? 'plus' : null;
+      const entitlement = customerPlan === 'pro' ? customerPro : customerPlan === 'plus' ? customerPlus : null;
 
-    return { status: 'active', plan, periodEnd: periodEnd?.toISOString() ?? null };
+      if (!customerPlan) {
+        await this.entitlements.expireProviderSubscriptions(match.userId, 'revenuecat');
+        continue;
+      }
+
+      const periodStart = this.toDate(entitlement.purchase_date) ?? now;
+      const periodEnd = this.toDate(entitlement.expires_date) ?? this.toDate(entitlement.grace_period_expires_date);
+      const providerSubscriptionId = String(customer.original_app_user_id ?? match.appUserId);
+      await this.upsertSubscription({
+        userId: match.userId,
+        plan: customerPlan,
+        provider: 'revenuecat',
+        providerSubscriptionId,
+        status: 'active',
+        currentPeriodStart: periodStart,
+        currentPeriodEnd: periodEnd,
+        cancelAtPeriodEnd: false,
+      });
+      activated += 1;
+    }
+
+    return { status: activated > 0 ? 'active' : 'expired', plan: activated > 0 ? plan : 'free', accountsUpdated: matchedUsers.length };
   }
 
   private async upsertSubscription(input: {
