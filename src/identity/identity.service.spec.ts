@@ -1,7 +1,7 @@
 import { IdentityService, renderIdentityPrompt, sanitizeContextText } from './identity.service';
 
 const registry = (brave: string) => ({
-  snapshot: () => ({ llm: [{ id: 'gemini', provider: 'Google Gemini', state: 'configured' }, { id: 'groq', provider: 'Groq', state: 'not_configured' }], webSearch: { brave, freeResearch: 'configured' }, speech: {}, storage: {}, math: {} }),
+  snapshot: () => ({ llm: [{ id: 'gemini', provider: 'Google Gemini', state: 'configured' }, { id: 'groq', provider: 'Groq', state: 'not_configured' }], webSearch: { brave, freeResearch: 'configured' }, speech: {}, storage: {} }),
 }) as any;
 const svc = (brave = 'configured') => new IdentityService(registry(brave), {} as any);
 
