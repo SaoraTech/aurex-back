@@ -18,6 +18,8 @@ export class ConversationsController {
   @Patch(':id') @Protect('chat') rename(@CurrentUserId() uid:string,@Param('id') id:string,@Body() dto:RenameConversationDto){return this.service.rename(uid,id,dto.title);}
   @Post(':id/archive') @Protect('chat') archive(@CurrentUserId() uid:string,@Param('id') id:string){return this.service.archive(uid,id);}
   @Post(':id/unarchive') @Protect('chat') unarchive(@CurrentUserId() uid:string,@Param('id') id:string){return this.service.unarchive(uid,id);}
+  @Post(':id/pin') @Protect('chat') pin(@CurrentUserId() uid:string,@Param('id') id:string){return this.service.pin(uid,id);}
+  @Post(':id/unpin') @Protect('chat') unpin(@CurrentUserId() uid:string,@Param('id') id:string){return this.service.unpin(uid,id);}
   @Delete() @Protect('chat') deleteAll(@CurrentUserId() uid:string){return this.service.deleteAll(uid);}
   @Delete(':id') @Protect('chat') remove(@CurrentUserId() uid:string,@Param('id') id:string){return this.service.delete(uid,id);}
 }
