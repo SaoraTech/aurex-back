@@ -356,8 +356,9 @@ export class BillingWebhooksService {
       return new Date(Math.max(...expirations.map((value: Date) => value.getTime())));
     };
     const isActive = (entry: any) => {
+      if (!entry) return false;
       const expiry = getEffectiveExpiry(entry);
-      return !entry || !expiry || expiry > now;
+      return !expiry || expiry > now;
     };
 
     const sourceIds = [...new Set(event.transferredFrom ?? [])];
