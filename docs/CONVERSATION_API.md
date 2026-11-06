@@ -15,5 +15,11 @@ Authenticated routes; ownership is checked server-side.
 
 Legacy list and message endpoints keep their array responses for mobile compatibility. Edits and feedback use the existing audit event table; no schema migration is required.
 
+## Generation streaming and cancellation
+- POST /api/v1/chat/messages/stream accepts the same payload as /messages and emits Server-Sent Events: delta, done or error.
+- POST /api/v1/chat/generations/:requestId/cancel aborts an active Groq request for the authenticated user.
+- Partial streamed text is persisted as an interrupted assistant message and excluded from later model context; clients can display it and retry using a new request ID.
+- The legacy POST /api/v1/chat/messages remains available and returns a complete JSON response.
+
 ## Free Web research
 When Brave Search is not configured, the backend uses DuckDuckGo HTML for general discovery, Wikimedia for encyclopedic results and Crossref for academic metadata. These free public services are best-effort and may impose rate limits or change response formats. Brave remains optional and preferred only when explicitly enabled and configured. Groq remains the planner/synthesizer; SageMath remains separate.
