@@ -131,7 +131,7 @@ export class ChatService {
     const convo = input.conversationId
       ? await this.conversations.getOwned(userId, input.conversationId)
       : await this.conversations.create(userId, {
-          title: input.content.slice(0, 70),
+          title: input.content.replace(/\s+/g, ' ').trim().slice(0, 70),
         });
 
     // 1. Idempotent replay check: already answered -> return existing result without new provider call or quota use
