@@ -387,6 +387,10 @@ export class BillingService {
         }
       });
 
+      // The payment transaction is committed; now refresh Novu audience/channel
+      // memberships so a newly activated plan receives the correct announcements.
+      await this.entitlements?.syncNotificationMembership(local.userId);
+
       this.logger.log(
         `Abonnement ${plan} (${durationDays}j) activé avec succès pour l'utilisateur ${local.userId} (Paiement: ${local.id})`,
       );
