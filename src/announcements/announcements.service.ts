@@ -154,6 +154,7 @@ export class AnnouncementsService {
     const result = await this.notifications.triggerWorkflow({
       topicKey: 'announcements:all',
       workflowId: 'aurex-announcement',
+      transactionId: `aurex-announcement-${published.id}`,
       payload: {
         announcementId: published.id,
         targetAudience: published.targetAudience,
