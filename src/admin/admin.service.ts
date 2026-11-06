@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, isNull, or, sql } from 'drizzle-orm';
 import { DRIZZLE } from '../db/db.constants';
 import { announcement, auditEvent, notificationDelivery, payment, subscription, user } from '../db/schema';
 
@@ -26,9 +26,15 @@ export class AdminService {
     const [usersCount, activeSubscriptions, successfulPayments, pendingPayments, publishedAnnouncements, recentActivity] =
       await Promise.all([
         this.count(this.db.select({ count: sql<number>`count(*)` }).from(user)),
-        this.count(this.db.select({ count: sql<number>`count(*)` }).from(subscription).where(eq(subscription.status, 'active'))),
+        this.count(this.db.select({ count: sql<number>`count(*)` }).from(subscription).where(and(
+          eq(subscription.status, 'active'),
+          or(isNull(subscription.currentPeriodEnd), gte(subscription.currentPeriodEnd, new Date())),
+        ))),
         this.count(this.db.select({ count: sql<number>`count(*)` }).from(payment).where(eq(payment.status, 'succeeded'))),
-        this.count(this.db.select({ count: sql<number>`count(*)` }).from(payment).where(eq(payment.status, 'pending'))),
+        this.count(this.db.select({ count: sql<number>`count(*)` }).from(payment).where(or(
+          eq(payment.status, 'pending'),
+          eq(payment.status, 'processing'),
+        ))),
         this.count(this.db.select({ count: sql<number>`count(*)` }).from(announcement).where(eq(announcement.status, 'published'))),
         this.db.select().from(auditEvent).orderBy(desc(auditEvent.createdAt)).limit(15),
       ]);
