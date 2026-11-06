@@ -311,10 +311,8 @@ export class BillingWebhooksService {
         throw badRequest('DODO_PAYMENT_PLAN_MISMATCH', 'Le produit Dodo ne correspond pas au plan de paiement local.');
       }
       const now = new Date();
-      if (localPayment) {
-        await this.db.update(payment).set({ status: 'succeeded', rawStatus: type, updatedAt: now })
-          .where(and(eq(payment.id, localPayment.id), eq(payment.provider, 'dodo_payments')));
-      }
+      // Subscription lifecycle events control access; only payment.succeeded
+      // may mark the financial transaction as paid.
       const durationDays = String(plan).endsWith('_promo') ? 7 : 30;
       const start = this.toDate(data.current_period_start ?? data.previous_billing_date ?? data.created_at) ?? now;
       const end = this.toDate(data.current_period_end ?? data.next_billing_date ?? data.expires_at)
