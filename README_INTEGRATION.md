@@ -102,4 +102,4 @@ A repository change cannot revoke a remote provider credential or change Render 
 - Confirm Azure resource region and Fast Transcription availability.
 - Review actual Azure usage and regional prices before production rollout.
 
-The migration does not modify billing providers, subscription lifecycle logic or database schema. No deployment is triggered by this repository update.
+The migration does not modify billing providers, subscription lifecycle logic or database schema. No manual Render deployment was invoked. If Render auto-deploy is enabled for main, GitHub pushes may trigger the configured deployment automatically.
