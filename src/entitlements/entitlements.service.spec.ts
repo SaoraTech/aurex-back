@@ -32,7 +32,7 @@ describe('EntitlementsService', () => {
     expect(plans.getLimits).toHaveBeenCalledWith('plus_promo');
   });
 
-  it('replaces competing active subscriptions across providers in one transaction', async () => {
+  it('records a provider subscription without falsely canceling another provider subscription', async () => {
     const tx = {
       select: jest.fn(() => ({
         from: jest.fn(() => ({
@@ -76,7 +76,7 @@ describe('EntitlementsService', () => {
 
     expect(result.id).toBe('sub_new');
     expect(db.transaction).toHaveBeenCalledTimes(1);
-    expect(tx.update).toHaveBeenCalledTimes(1);
+    expect(tx.update).not.toHaveBeenCalled();
   });
 
 });
