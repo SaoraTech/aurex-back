@@ -9,7 +9,6 @@ import { ObservabilityModule } from './observability/observability.module';
 import { ProvidersModule } from './providers/providers.module';
 import { IdentityModule } from './identity/identity.module';
 import { AiModule } from './ai/ai.module';
-import { MathModule } from './math/math.module';
 import { ConversationsModule } from './conversations/conversations.module';
 import { MessagesModule } from './messages/messages.module';
 import { ChatModule } from './chat/chat.module';
@@ -37,7 +36,6 @@ import { QuotasModule } from './quotas/quotas.module';
     SecurityModule,
     HealthModule,
     AiModule,
-    MathModule,
     ConversationsModule,
     MessagesModule,
     ChatModule,
