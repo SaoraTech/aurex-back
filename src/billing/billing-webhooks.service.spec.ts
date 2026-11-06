@@ -64,4 +64,52 @@ describe('BillingWebhooksService', () => {
     expect(entitlements.expireProviderSubscriptions).toHaveBeenCalledWith('user_1', 'revenuecat');
     expect(entitlements.activateSubscription).not.toHaveBeenCalled();
   });
+  it('does not grant a subscription from Dodo payment.succeeded alone', async () => {
+    const db = {
+      select: jest.fn(() => ({
+        from: jest.fn(() => ({
+          where: jest.fn(() => ({
+            limit: jest.fn().mockResolvedValue([{
+              id: 'local_payment_1',
+              userId: 'user_1',
+              plan: 'plus',
+              currency: 'XOF',
+              amountMinor: 5000,
+              status: 'processing',
+            }]),
+          })),
+        })),
+      })),
+      update: jest.fn(() => ({
+        set: jest.fn(() => ({
+          where: jest.fn().mockResolvedValue([]),
+        })),
+      })),
+    };
+    const dodo = { resolvePlanFromProductId: jest.fn().mockReturnValue(undefined) };
+    const entitlements = {
+      activateSubscription: jest.fn(),
+      expireProviderSubscriptions: jest.fn(),
+    };
+    const service = new BillingWebhooksService(
+      db as any,
+      dodo as any,
+      {} as any,
+      {} as any,
+      entitlements as any,
+    );
+
+    await (service as any).applyDodoEvent({
+      type: 'payment.succeeded',
+      data: {
+        metadata: { localPaymentId: 'local_payment_1', userId: 'user_1', plan: 'plus' },
+        currency: 'XOF',
+        total_amount: 5000,
+      },
+    });
+
+    expect(db.update).toHaveBeenCalledTimes(1);
+    expect(entitlements.activateSubscription).not.toHaveBeenCalled();
+  });
+
 });
