@@ -184,7 +184,7 @@ export class AdminService {
 
   getSettingsStatus() {
     const configured = (keys: string[]) => keys.every(key => Boolean(this.config.get<string>(key)));
-    const jemenipayConfigured = configured(['jemenipayApiKey', 'jemenipaySecretKey']);
+    const jemenipayConfigured = configured(['jemenipayApiKey', 'jemenipaySecretKey', 'jemenipayWebhookSecret']);
     const novuConfigured = configured(['novuApiKey', 'novuAppIdentifier']);
     const dodoConfigured = configured([
       'dodoPaymentsApiKey', 'dodoPaymentsWebhookKey', 'dodoProductPlus',
