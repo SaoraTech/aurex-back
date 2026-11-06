@@ -211,7 +211,7 @@ export class PlansService {
         plan: PlanName;
         status: string;
         currentPeriodStart: Date;
-        currentPeriodEnd: Date;
+        currentPeriodEnd: Date | null;
         cancelAtPeriodEnd: boolean;
       }>;
 
