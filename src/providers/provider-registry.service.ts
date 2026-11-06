@@ -8,6 +8,8 @@ export type ProviderState = 'disabled' | 'not_configured' | 'configured' | 'not_
 export class ProviderRegistryService {
   constructor(private readonly config: ConfigService) {}
 
+  private enabled(key: string): boolean { const value = this.config.get(key); return value === true || value === 'true'; }
+
   private state(enabled: boolean, ready: boolean): ProviderState {
     if (!enabled) return 'disabled';
     return ready ? 'configured' : 'not_configured';
@@ -27,11 +29,11 @@ export class ProviderRegistryService {
         },
       ],
       webSearch: {
-        brave: this.state(!!c('braveSearchEnabled'), !!c('braveSearchApiKey')),
+        brave: this.state(this.enabled('braveSearchEnabled'), !!c('braveSearchApiKey')),
       },
       speech: {
         textToSpeech: {
-          azure: this.state(!!c('azureSpeechEnabled'), azureReady),
+          azure: this.state(this.enabled('azureSpeechEnabled'), azureReady),
         },
         speechToText: {
           azure: this.state(!!c('azureSpeechEnabled'), azureReady),
