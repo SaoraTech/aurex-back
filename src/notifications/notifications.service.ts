@@ -173,47 +173,56 @@ export class NotificationsService {
       }
 
       const identifier = `${input.subscriberId}-announcements`;
+      const channelTopics = ['email', 'push'] as const;
+      const allTopics = channelTopics.flatMap(channel => [
+        { topicKey: `announcements:all:${channel}`, name: `Aurex announcements — all — ${channel}` },
+        { topicKey: `announcements:${input.plan}:${channel}`, name: `Aurex announcements — ${input.plan} — ${channel}` },
+        ...(['free', 'plus', 'pro'] as const)
+          .filter(plan => plan !== input.plan)
+          .map(plan => ({
+            topicKey: `announcements:${plan}:${channel}`,
+            name: `Aurex announcements — ${plan} — ${channel}`,
+          })),
+      ]);
+      const activeTopics = new Set<string>();
+      for (const channel of channelTopics) {
+        const enabled = channel === 'email'
+          ? input.preferences.editorialEmailEnabled
+          : input.preferences.editorialPushEnabled;
+        if (enabled) {
+          activeTopics.add(`announcements:all:${channel}`);
+          activeTopics.add(`announcements:${input.plan}:${channel}`);
+        }
+      }
+
       const syncTopic = async (topicKey: string, name: string) => {
         const topicUrl = `${baseUrl}/v2/topics/${encodeURIComponent(topicKey)}/subscriptions`;
-        const topicBody = {
-          subscriptions: [{ identifier, subscriberId: input.subscriberId }],
-          name,
-        };
-        const topicResponse = await fetchWithTimeout(
+        return fetchWithTimeout(
           'novu',
           topicUrl,
           {
             method: 'POST',
             headers,
-            body: JSON.stringify(topicBody),
+            body: JSON.stringify({
+              subscriptions: [{ identifier, subscriberId: input.subscriberId }],
+              name,
+            }),
           },
           5000,
         );
-
-        // A conflict means the same subscriber is already attached to this topic.
-        // The operation is idempotent; do not call an undocumented PATCH endpoint.
-        return topicResponse.status === 409
-          ? { ok: true, status: 409 }
-          : topicResponse;
       };
 
-      // All users receive global announcements; a second topic isolates the
-      // current commercial audience without relying on undocumented filter context.
-      for (const [topicKey, name] of [
-        ['announcements:all', 'Aurex announcements'],
-        [`announcements:${input.plan}`, `Aurex announcements — ${input.plan}`],
-      ]) {
-        const topicResponse = await syncTopic(topicKey, name);
-        if (!topicResponse.ok) {
-          this.logger.warn({ msg: 'novu_topic_subscription_rejected', status: topicResponse.status, topicKey });
+      // Topic membership enforces audience and channel preferences server-side.
+      for (const topic of allTopics.filter(item => activeTopics.has(item.topicKey))) {
+        const topicResponse = await syncTopic(topic.topicKey, topic.name);
+        if (!topicResponse.ok && topicResponse.status !== 409) {
+          this.logger.warn({ msg: 'novu_topic_subscription_rejected', status: topicResponse.status, topicKey: topic.topicKey });
           return { sent: false, reason: `topic_http_${topicResponse.status}` };
         }
       }
 
-      // Remove stale plan memberships after the current plan is confirmed.
-      for (const stalePlan of (['free', 'plus', 'pro'] as const).filter(plan => plan !== input.plan)) {
-        const staleTopicKey = `announcements:${stalePlan}`;
-        const staleUrl = `${baseUrl}/v2/topics/${encodeURIComponent(staleTopicKey)}/subscriptions`;
+      for (const topic of allTopics.filter(item => !activeTopics.has(item.topicKey))) {
+        const staleUrl = `${baseUrl}/v2/topics/${encodeURIComponent(topic.topicKey)}/subscriptions`;
         const staleResponse = await fetchWithTimeout(
           'novu',
           staleUrl,
@@ -225,7 +234,7 @@ export class NotificationsService {
           5000,
         );
         if (!staleResponse.ok && staleResponse.status !== 404) {
-          this.logger.warn({ msg: 'novu_stale_topic_unsubscribe_rejected', status: staleResponse.status, topicKey: staleTopicKey });
+          this.logger.warn({ msg: 'novu_stale_topic_unsubscribe_rejected', status: staleResponse.status, topicKey: topic.topicKey });
           return { sent: false, reason: `topic_unsubscribe_http_${staleResponse.status}` };
         }
       }
