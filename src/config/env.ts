@@ -54,13 +54,13 @@ export const EnvSchema = z.object({
   if(v.NODE_ENV==='production'&&mode==='disabled')need(v.ARCJET_ALLOW_DISABLED_IN_PRODUCTION==='true','ARCJET_MODE','Arcjet must be active in production or explicitly acknowledged');
   for(const o of (v.CORS_ORIGIN??'').split(',').map(s=>s.trim()).filter(Boolean)){
     if(o==='*')ctx.addIssue({code:'custom',path:['CORS_ORIGIN'],message:'Wildcard CORS origin is not allowed'});
-    else try{new URL(o)}catch{ctx.addIssue({code:'custom',path:['CORS_ORIGIN'],message:\`Invalid CORS origin: \${o}\`});}
+    else try{new URL(o)}catch{ctx.addIssue({code:'custom',path:['CORS_ORIGIN'],message:`Invalid CORS origin: ${o}`});}
   }
   for(const o of (v.TRUSTED_ORIGINS??'').split(',').map(s=>s.trim()).filter(Boolean)){
-    try{new URL(o)}catch{ctx.addIssue({code:'custom',path:['TRUSTED_ORIGINS'],message:\`Invalid trusted origin: \${o}\`});}
+    try{new URL(o)}catch{ctx.addIssue({code:'custom',path:['TRUSTED_ORIGINS'],message:`Invalid trusted origin: ${o}`});}
   }
   for(const p of (v.TRUSTED_PROXIES??'').split(',').map(s=>s.trim()).filter(Boolean))
-    if(!isIpOrCidr(p))ctx.addIssue({code:'custom',path:['TRUSTED_PROXIES'],message:\`Invalid trusted proxy: \${p}\`});
+    if(!isIpOrCidr(p))ctx.addIssue({code:'custom',path:['TRUSTED_PROXIES'],message:`Invalid trusted proxy: ${p}`});
 });
 export type Env=z.infer<typeof EnvSchema>;
 export function validateEnv(raw?:Record<string,unknown>):Env{
