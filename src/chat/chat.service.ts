@@ -6,7 +6,7 @@ import { AppException, conflict } from '../common/errors';
 import { newId } from '../common/ids';
 import { ConversationsService } from '../conversations/conversations.service';
 import { DRIZZLE } from '../db/db.constants';
-import { conversation, memoryItem, message } from '../db/schema';
+import { auditEvent, conversation, memoryItem, message } from '../db/schema';
 import { IdentityService } from '../identity/identity.service';
 import { MathService } from '../math/math.service';
 import { UsageService } from '../observability/usage.service';
@@ -37,6 +37,51 @@ export class ChatService {
     private readonly math: MathService,
     private readonly usage: UsageService,
   ) {}
+
+
+  async regenerate(userId: string, conversationId: string, assistantMessageId: string, correlationId?: string) {
+    await this.conversations.getOwned(userId, conversationId);
+    const rows = await this.db.select().from(message)
+      .where(eq(message.conversationId, conversationId))
+      .orderBy(desc(message.createdAt), desc(message.id)).limit(HISTORY_WINDOW * 2);
+    const target = rows[0];
+    if (!target || target.id !== assistantMessageId || target.role !== 'assistant') {
+      throw conflict('REGENERATION_NOT_LATEST', 'Seule la dernière réponse de la conversation peut être régénérée.');
+    }
+    const previousUser = rows.slice(1).find((row: any) => row.role === 'user');
+    if (!previousUser) throw new AppException(404, 'USER_MESSAGE_NOT_FOUND', 'La question d’origine est introuvable.');
+
+    const oldSources = target.sources ?? null;
+    const supersededSources = { ...(oldSources && typeof oldSources === 'object' ? oldSources : {}), superseded: true };
+    await this.db.update(message).set({ sources: supersededSources }).where(eq(message.id, assistantMessageId));
+
+    let result: any;
+    try {
+      result = await this.send(userId, {
+        conversationId,
+        content: previousUser.content,
+        requestId: newId(),
+        model: 'groq',
+        existingUserMessageId: previousUser.id,
+      }, correlationId);
+    } catch (error) {
+      await this.db.update(message).set({ sources: oldSources }).where(eq(message.id, assistantMessageId));
+      throw error;
+    }
+
+    const alternativeSources = {
+      ...(result.message.sources && typeof result.message.sources === 'object' ? result.message.sources : {}),
+      alternativeOf: assistantMessageId,
+    };
+    await this.db.update(message).set({ sources: alternativeSources }).where(eq(message.id, result.message.id));
+    await this.db.insert(auditEvent).values({
+      id: newId(), actorUserId: userId, action: 'message.alternative', targetType: 'message',
+      targetId: assistantMessageId,
+      metadata: { content: target.content, alternativeMessageId: result.message.id },
+      createdAt: new Date(),
+    });
+    return { ...result, message: { ...result.message, sources: alternativeSources }, alternativeOf: assistantMessageId };
+  }
 
   cancelGeneration(userId: string, requestId: string) {
     const controller = this.activeGenerations.get(userId + ':' + requestId);
@@ -72,6 +117,7 @@ export class ChatService {
       requestId?: string;
       model?: AurexModelId;
       webSearch?: WebMode;
+      existingUserMessageId?: string;
     },
     correlationId?: string,
     streamOptions?: { onToken?: (delta: string) => void; signal?: AbortSignal },
@@ -198,7 +244,7 @@ export class ChatService {
 
       const history = rows
         .reverse()
-        .filter((m: any) => (m.role === 'user' || m.role === 'assistant') && !(m.role === 'assistant' && m.sources?.partial))
+        .filter((m: any) => (m.role === 'user' || m.role === 'assistant') && !(m.role === 'assistant' && (m.sources?.partial || m.sources?.superseded)))
         .map((m: any) => ({
           role: m.role as 'user' | 'assistant',
           content: m.content as string,
