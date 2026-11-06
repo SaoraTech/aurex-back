@@ -5,8 +5,6 @@ import { RequireUserGuard } from '../src/auth/require-user.guard';
 import { BillingService } from '../src/billing/billing.service';
 import { JemenipayProvider } from '../src/billing/providers/jemenipay.provider';
 import { ChatService } from '../src/chat/chat.service';
-import { MathService } from '../src/math/math.service';
-import { SageMathEngine } from '../src/math/sagemath.engine';
 import { QuotasService } from '../src/quotas/quotas.service';
 import { PlansService } from '../src/plans/plans.service';
 import { featureQuotaLedger, featureQuotaUsage, payment, subscription, message, conversation } from '../src/db/schema';
@@ -75,129 +73,9 @@ describe('Aurex Backend - Comprehensive E2E Journeys & Critical Invariants', () 
   });
 
   // =========================================================================
-  // JOURNEY 2 — SageMath Strict Mathematical Contract & Validation
+  // JOURNEY 3 — Chat generation through Groq
   // =========================================================================
-  describe('Journey 2: SageMath Strict Mathematical Contract', () => {
-    let sageMath: SageMathEngine;
-    const testSecret = 'test-sagemath-token-secret-12345';
-
-    beforeEach(() => {
-      const configMock: any = {
-        get: jest.fn((key: string) => {
-          if (key === 'sagemathServiceUrl' || key === 'SAGEMATH_URL') return 'https://sagemath.internal';
-          if (key === 'sagemathApiKey' || key === 'SAGEMATH_API_KEY') return testSecret;
-          if (key === 'sagemathTimeoutMs' || key === 'SAGEMATH_TIMEOUT_MS') return 4000;
-          return undefined;
-        }),
-      };
-      sageMath = new SageMathEngine(configMock);
-    });
-
-    it('accepts and validates a strictly verified SageMath calculation contract', async () => {
-      global.fetch = jest.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: async () => ({
-          status: 'verified',
-          operation: 'derivative',
-          expression: 'x^3 + 2*x',
-          plainText: '3*x^2 + 2',
-          latex: '3x^{2} + 2',
-          steps: ['Apply power rule: d/dx(x^3) = 3x^2', 'd/dx(2x) = 2'],
-          latencyMs: 82,
-        }),
-      });
-
-      const res = await sageMath.execute({
-        operation: 'derivative',
-        expression: 'x^3 + 2*x',
-      });
-
-      expect(res.status).toBe('verified');
-      expect(res.latex).toBe('3x^{2} + 2');
-      expect(res.steps).toHaveLength(2);
-      expect(res.plainText).toBe('3*x^2 + 2');
-    });
-
-    it('rejects responses that do not contain status === "verified"', async () => {
-      global.fetch = jest.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: async () => ({
-          status: 'pending',
-          operation: 'derivative',
-          expression: 'x^3',
-        }),
-      });
-
-      const res = await sageMath.execute({
-        operation: 'derivative',
-        expression: 'x^3',
-      });
-
-      expect(res.status).toBe('failed');
-      expect(res.error).toContain('non vérifié ou inconnu');
-    });
-
-    it('rejects responses with operation mismatch', async () => {
-      global.fetch = jest.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: async () => ({
-          status: 'verified',
-          operation: 'integral', // Mismatch!
-          expression: 'x^3',
-          plainText: 'x^4 / 4',
-        }),
-      });
-
-      const res = await sageMath.execute({
-        operation: 'derivative',
-        expression: 'x^3',
-      });
-
-      expect(res.status).toBe('failed');
-      expect(res.error).toContain('ne correspond pas à l’opération demandée');
-    });
-
-    it('rejects excessively large payloads (>50k chars or >50 steps)', async () => {
-      global.fetch = jest.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: async () => ({
-          status: 'verified',
-          operation: 'solve',
-          expression: 'x = 0',
-          plainText: 'a'.repeat(55000), // Exceeds 50,000 char threshold
-        }),
-      });
-
-      const res = await sageMath.execute({
-        operation: 'solve',
-        expression: 'x = 0',
-      });
-
-      expect(res.status).toBe('failed');
-      expect(res.error).toContain('trop volumineux');
-    });
-
-    it('fails closed on network timeout or server 500 without fabricating fake answers', async () => {
-      global.fetch = jest.fn().mockRejectedValue(new Error('Connection to SageMath refused'));
-
-      const res = await sageMath.execute({
-        operation: 'derivative',
-        expression: 'x^2',
-      });
-
-      expect(res.status).toBe('failed');
-      expect(res.error).toContain('Connection to SageMath refused');
-    });
-  });
-
-  // =========================================================================
-  // JOURNEY 3 — Chat Orchestration (Groq Reasoning + SageMath Proof)
-  // =========================================================================
-  describe('Journey 3: Chat Groq + SageMath Orchestration', () => {
+  describe('Journey 3: Chat Groq conversation', () => {
     let chat: ChatService;
     let mockDb: any;
     let mockConversations: any;
@@ -206,7 +84,6 @@ describe('Aurex Backend - Comprehensive E2E Journeys & Critical Invariants', () 
     let mockQuotas: any;
     let mockIdentity: any;
     let mockResearch: any;
-    let mockMath: any;
     let mockUsage: any;
 
     beforeEach(() => {
@@ -222,120 +99,50 @@ describe('Aurex Backend - Comprehensive E2E Journeys & Critical Invariants', () 
         })),
         insert: jest.fn(() => ({ values: jest.fn().mockResolvedValue(undefined) })),
         update: jest.fn(() => ({ set: jest.fn(() => ({ where: jest.fn().mockResolvedValue(undefined) })) })),
-        transaction: jest.fn(async (cb: (tx: any) => Promise<any>) => {
-          return cb(mockDb);
-        }),
+        transaction: jest.fn(async (cb: (tx: any) => Promise<any>) => cb(mockDb)),
       };
-
       mockConversations = {
         getOwned: jest.fn().mockResolvedValue({ id: 'convo_101', title: 'Calcul Dérivée' }),
         create: jest.fn().mockResolvedValue({ id: 'convo_101', title: 'Calcul Dérivée' }),
       };
-
       mockAi = {
         generate: jest.fn().mockResolvedValue({
-          text: 'En appliquant la règle des puissances, la dérivée de x^3 + 2x est 3x^2 + 2.',
+          text: 'La dérivée de x^3 + 2x est expliquée étape par étape.',
           provider: 'groq',
           model: 'openai/gpt-oss-120b',
           tokens: 42,
           latencyMs: 190,
         }),
       };
-
-      mockPlans = {
-        getEffectivePlan: jest.fn().mockResolvedValue('pro'),
-      };
-
+      mockPlans = { getEffectivePlan: jest.fn().mockResolvedValue('pro') };
       mockQuotas = {
         reserveQuota: jest.fn().mockResolvedValue({ allowed: true, remaining: 99 }),
         commitQuota: jest.fn().mockResolvedValue(true),
         compensateQuota: jest.fn().mockResolvedValue(true),
       };
-
-      mockIdentity = {
-        buildSystemInstruction: jest.fn().mockReturnValue('INSTRUCTION_SYSTEME_AUREX'),
-        injectPersona: jest.fn().mockReturnValue([{ role: 'system', content: 'Tu es Aurex.' }]),
-      };
-
+      mockIdentity = { buildSystemInstruction: jest.fn().mockReturnValue('INSTRUCTION_SYSTEME_AUREX') };
       mockResearch = {
-        shouldSearch: jest.fn().mockReturnValue(false),
-        research: jest.fn(),
         chatContext: jest.fn().mockResolvedValue({
           summary: { requested: false, performed: false, queries: [], sources: [] },
         }),
       };
-
-      mockMath = {
-        detectAndSolve: jest.fn(),
-        compute: jest.fn(),
-      };
-
-      mockUsage = {
-        record: jest.fn().mockResolvedValue(undefined),
-      };
-
+      mockUsage = { record: jest.fn().mockResolvedValue(undefined) };
       chat = new ChatService(
-        mockDb,
-        mockConversations,
-        mockAi,
-        mockPlans,
-        mockQuotas,
-        mockIdentity,
-        mockResearch,
-        mockMath,
-        mockUsage,
+        mockDb, mockConversations, mockAi, mockPlans, mockQuotas,
+        mockIdentity, mockResearch, mockUsage,
       );
     });
 
-    it('orchestrates SageMath deterministic verification and commits quota on verified success', async () => {
-      mockMath.detectAndSolve.mockReturnValue({
-        operation: 'derivative',
-        expression: 'x^3 + 2*x',
-      });
-
-      mockMath.compute.mockResolvedValue({
-        status: 'verified',
-        operation: 'derivative',
-        expression: 'x^3 + 2*x',
-        plainText: '3*x^2 + 2',
-        latex: '3x^{2} + 2',
-        steps: ['d/dx(x^3) = 3x^2', 'd/dx(2x) = 2'],
-      });
-
+    it('sends mathematical questions to Groq as ordinary chat and reserves only the message quota', async () => {
       const response = await chat.send('usr_test', {
         conversationId: 'convo_101',
-        content: 'Dérive x^3 + 2x',
+        content: 'Explique la dérivée de x^3 + 2x',
       });
-
-      expect(mockMath.detectAndSolve).toHaveBeenCalledWith('Dérive x^3 + 2x');
-      expect(mockMath.compute).toHaveBeenCalled();
-      // Quota committed for math
-      expect(mockQuotas.commitQuota).toHaveBeenCalled();
-      // Groq generated the pedagogical explanation
       expect(mockAi.generate).toHaveBeenCalled();
-      expect(response.mathComputation).toBeDefined();
-      expect((response.mathComputation as any)?.plainText).toBe('3*x^2 + 2');
-    });
-
-    it('compensates quota and alerts when SageMath calculation fails or is unverified', async () => {
-      mockMath.detectAndSolve.mockReturnValue({
-        operation: 'solve',
-        expression: 'invalid_unparseable',
-      });
-
-      mockMath.compute.mockResolvedValue({
-        status: 'failed',
-        error: 'SYNTAX_ERROR',
-      });
-
-      const response = await chat.send('usr_test', {
-        conversationId: 'convo_101',
-        content: 'Résous invalid_unparseable',
-      });
-
-      // Math quota was compensated, NOT committed
-      expect(mockQuotas.compensateQuota).toHaveBeenCalled();
-      expect(response.message).toBeDefined();
+      expect(mockQuotas.reserveQuota).toHaveBeenCalledTimes(1);
+      expect(mockQuotas.reserveQuota.mock.calls[0][1]).toBe('daily_messages');
+      expect(response.message.content).toContain('dérivée');
+      expect(response).not.toHaveProperty('mathComputation');
     });
   });
 
