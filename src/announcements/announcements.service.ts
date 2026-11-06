@@ -113,7 +113,7 @@ export class AnnouncementsService {
     if (options.sendNotification) {
       try {
         await this.notifications.triggerWorkflow({
-          subscriberId: `topic:announcements:${published.targetAudience}`,
+          topicKey: `announcements:${published.targetAudience}`,
           workflowId: 'aurex-announcement',
           payload: {
             announcementId: published.id,

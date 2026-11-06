@@ -4,62 +4,58 @@ import { NotificationsService } from './notifications.service';
 
 describe('NotificationsService', () => {
   const createService = (configValues: Record<string, any>) => {
-    const config = {
-      get: (k: string) => configValues[k],
-    } as unknown as ConfigService;
+    const config = { get: (k: string) => configValues[k] } as unknown as ConfigService;
     return new NotificationsService(config);
   };
 
-  describe('Novu not configured', () => {
-    it('returns sent: false and reason: not_configured when apiKey is missing', async () => {
-      const svc = createService({});
-      const res = await svc.triggerWorkflow({
-        subscriberId: 'user_123',
-        workflowId: 'announcement',
-      });
-      expect(res.sent).toBe(false);
-      expect(res.reason).toBe('not_configured');
-    });
+  afterEach(() => jest.restoreAllMocks());
 
-    it('returns null hmacHash when apiKey is missing', () => {
-      const svc = createService({});
-      const res = svc.getSubscriberToken('user_123');
-      expect(res.subscriberId).toBe('user_123');
-      expect(res.hmacHash).toBeNull();
+  it('skips workflows when Novu is not configured', async () => {
+    const svc = createService({});
+    await expect(svc.triggerWorkflow({ subscriberId: 'user_123', workflowId: 'announcement' }))
+      .resolves.toMatchObject({ sent: false, reason: 'not_configured' });
+    expect(svc.getSubscriberToken('user_123').hmacHash).toBeNull();
+  });
+
+  it('generates the SHA256 HMAC subscriber hash and returns app identifier', () => {
+    const apiKey = 'test_secret_api_key_12345';
+    const svc = createService({ novuApiKey: apiKey, novuAppIdentifier: 'app_id_test' });
+    const result = svc.getSubscriberToken('sub_user_456');
+    expect(result.hmacHash).toBe(createHmac('sha256', apiKey).update('sub_user_456').digest('hex'));
+    expect(result.appIdentifier).toBe('app_id_test');
+  });
+
+  it('targets Novu topics using the documented Topic recipient shape', async () => {
+    const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ data: { transactionId: 'txn_1' } }),
+    } as Response);
+    const svc = createService({ novuApiKey: 'novu_test', novuApiUrl: 'https://api.novu.co' });
+
+    await expect(svc.triggerWorkflow({
+      topicKey: 'announcements:plus',
+      workflowId: 'aurex-announcement',
+      payload: { announcementId: 'ann_1' },
+    })).resolves.toMatchObject({ sent: true, transactionId: 'txn_1' });
+
+    const [, init] = fetchMock.mock.calls[0];
+    expect(JSON.parse(String(init?.body))).toMatchObject({
+      name: 'aurex-announcement',
+      to: { type: 'Topic', topicKey: 'announcements:plus' },
     });
   });
 
-  describe('HMAC Token Generation', () => {
-    it('generates the exact SHA256 HMAC for subscriberId using apiKey', () => {
-      const apiKey = 'test_secret_api_key_12345';
-      const svc = createService({
-        novuApiKey: apiKey,
-        novuAppIdentifier: 'app_id_test',
-      });
-
-      const res = svc.getSubscriberToken('sub_user_456');
-      const expectedHmac = createHmac('sha256', apiKey).update('sub_user_456').digest('hex');
-
-      expect(res.subscriberId).toBe('sub_user_456');
-      expect(res.hmacHash).toBe(expectedHmac);
-      expect(res.appIdentifier).toBe('app_id_test');
-    });
+  it('refuses to trigger a workflow without a recipient', async () => {
+    const svc = createService({ novuApiKey: 'novu_test' });
+    await expect(svc.triggerWorkflow({ workflowId: 'test_workflow' }))
+      .resolves.toMatchObject({ sent: false, reason: 'recipient_missing' });
   });
 
-  describe('Graceful degradation on provider error', () => {
-    it('catches network errors and returns sent: false with provider_error without throwing', async () => {
-      const svc = createService({
-        novuApiKey: 'nv_key_mock',
-        novuApiUrl: 'http://127.0.0.1:1', // Non-routable port to force immediate network error
-      });
-
-      const res = await svc.triggerWorkflow({
-        subscriberId: 'sub_test',
-        workflowId: 'test_workflow',
-      });
-
-      expect(res.sent).toBe(false);
-      expect(res.reason).toBe('provider_error');
-    });
+  it('gracefully reports provider/network errors', async () => {
+    jest.spyOn(global, 'fetch').mockRejectedValue(new Error('network down'));
+    const svc = createService({ novuApiKey: 'novu_test', novuApiUrl: 'https://api.novu.co' });
+    await expect(svc.triggerWorkflow({ subscriberId: 'sub_test', workflowId: 'test_workflow' }))
+      .resolves.toMatchObject({ sent: false, reason: 'provider_error' });
   });
 });

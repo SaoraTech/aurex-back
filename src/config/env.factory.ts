@@ -15,6 +15,7 @@ export const envFactory=()=>{
   audioDefaultLanguage:env.AUDIO_DEFAULT_LANGUAGE,
   jemenipayApiKey:env.JEMENIPAY_API_KEY,jemenipaySecretKey:env.JEMENIPAY_SECRET_KEY,
   jemenipayWebhookSecret:env.JEMENIPAY_WEBHOOK_SECRET,jemenipayEnv:env.JEMENIPAY_ENV,
+  novuApiKey:env.NOVU_API_KEY,novuApiUrl:env.NOVU_API_URL,novuAppIdentifier:env.NOVU_APP_IDENTIFIER,
   arcjetKey:env.ARCJET_KEY,arcjetMode:env.ARCJET_MODE,r2Enabled:env.R2_ENABLED,r2AccountId:env.R2_ACCOUNT_ID,
   r2Bucket:env.R2_BUCKET,r2AccessKeyId:env.R2_ACCESS_KEY_ID,r2SecretAccessKey:env.R2_SECRET_ACCESS_KEY,
   braveSearchEnabled:env.BRAVE_SEARCH_ENABLED,braveSearchApiKey:env.BRAVE_SEARCH_API_KEY,

@@ -4,7 +4,8 @@ import { createHmac } from 'node:crypto';
 import { fetchWithTimeout } from '../common/http';
 
 export interface TriggerWorkflowInput {
-  subscriberId: string;
+  subscriberId?: string;
+  topicKey?: string;
   workflowId: string;
   email?: string;
   firstName?: string;
@@ -62,13 +63,20 @@ export class NotificationsService {
 
     try {
       const url = `${this.apiUrl.replace(/\/+$/, '')}/v1/events/trigger`;
+      if (!input.subscriberId && !input.topicKey) {
+        return { sent: false, reason: 'recipient_missing' };
+      }
+
+      const recipient = input.topicKey
+        ? { type: 'Topic', topicKey: input.topicKey }
+        : {
+            subscriberId: input.subscriberId!,
+            ...(input.email ? { email: input.email } : {}),
+            ...(input.firstName ? { firstName: input.firstName } : {}),
+          };
       const body = {
         name: input.workflowId,
-        to: {
-          subscriberId: input.subscriberId,
-          ...(input.email ? { email: input.email } : {}),
-          ...(input.firstName ? { firstName: input.firstName } : {}),
-        },
+        to: recipient,
         payload: input.payload ?? {},
       };
 
