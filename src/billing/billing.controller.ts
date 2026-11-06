@@ -15,6 +15,7 @@ import { RequireUserGuard } from '../auth/require-user.guard';
 import { CurrentUserId } from '../common/user.decorator';
 import { BillingService } from './billing.service';
 import { BillingWebhooksService } from './billing-webhooks.service';
+import { HuaweiIapProvider } from './providers/huawei-iap.provider';
 import { PaymentMethodType } from './providers/payment-provider.interface';
 
 class CheckoutDto {
@@ -40,6 +41,7 @@ export class BillingController {
   constructor(
     private readonly billing: BillingService,
     private readonly webhooks: BillingWebhooksService,
+    private readonly huawei: HuaweiIapProvider,
   ) {}
 
   @ApiBearerAuth()
@@ -58,6 +60,13 @@ export class BillingController {
       idempotencyKey,
       dto.provider ?? 'jemenipay',
     );
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(RequireUserGuard)
+  @Post('huawei-iap/developer-payload')
+  createHuaweiDeveloperPayload(@CurrentUserId() userId: string) {
+    return { developerPayload: this.huawei.createDeveloperPayload(userId) };
   }
 
   @Post('webhook/dodo-payments')
