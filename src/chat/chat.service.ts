@@ -24,6 +24,7 @@ const isUniqueViolation = (e: unknown) =>
 @Injectable()
 export class ChatService {
   private readonly logger = new Logger(ChatService.name);
+  private readonly activeGenerations = new Map<string, AbortController>();
 
   constructor(
     @Inject(DRIZZLE) private readonly db: any,
@@ -36,6 +37,13 @@ export class ChatService {
     private readonly math: MathService,
     private readonly usage: UsageService,
   ) {}
+
+  cancelGeneration(userId: string, requestId: string) {
+    const controller = this.activeGenerations.get(userId + ':' + requestId);
+    if (!controller) return { cancelled: false };
+    controller.abort();
+    return { cancelled: true };
+  }
 
   private async findByRequest(
     conversationId: string,
@@ -66,6 +74,7 @@ export class ChatService {
       webSearch?: WebMode;
     },
     correlationId?: string,
+    streamOptions?: { onToken?: (delta: string) => void; signal?: AbortSignal },
   ) {
     const plan = await this.plans.getEffectivePlan(userId);
     const convo = input.conversationId
@@ -155,6 +164,7 @@ export class ChatService {
       }
     }
 
+    let partialText = '';
     try {
       // 3. Load conversation history & pinned memories
       const rows = await this.db
@@ -166,7 +176,7 @@ export class ChatService {
 
       const history = rows
         .reverse()
-        .filter((m: any) => m.role === 'user' || m.role === 'assistant')
+        .filter((m: any) => (m.role === 'user' || m.role === 'assistant') && !(m.role === 'assistant' && m.sources?.partial))
         .map((m: any) => ({
           role: m.role as 'user' | 'assistant',
           content: m.content as string,
@@ -302,9 +312,32 @@ INSTRUCTION STRICTE : Le moteur SageMath n'a pas pu vérifier ce calcul exact ($
       }
 
       // 7. Call Groq LLM
-      const result = await this.ai.generate(plan, history, input.model, {
-        systemInstruction,
-      });
+      const generationId = input.requestId ?? correlationId;
+      const generationKey = generationId ? userId + ':' + generationId : undefined;
+      if (generationKey && this.activeGenerations.has(generationKey)) {
+        throw conflict('REQUEST_IN_PROGRESS', 'Cette génération est déjà en cours.');
+      }
+      const abortController = new AbortController();
+      const abortFromClient = () => abortController.abort();
+      if (streamOptions?.signal?.aborted) abortController.abort();
+      else streamOptions?.signal?.addEventListener('abort', abortFromClient, { once: true });
+      if (generationKey) this.activeGenerations.set(generationKey, abortController);
+      let result: any;
+      try {
+        result = await this.ai.generate(plan, history, input.model, {
+          systemInstruction,
+          signal: abortController.signal,
+          ...(streamOptions?.onToken ? {
+            onToken: (delta: string) => {
+              partialText += delta;
+              streamOptions.onToken?.(delta);
+            },
+          } : {}),
+        });
+      } finally {
+        if (generationKey) this.activeGenerations.delete(generationKey);
+        streamOptions?.signal?.removeEventListener('abort', abortFromClient);
+      }
 
       // 8. Commit reserved message quota slot (only on successful completion!)
       await this.quotas.commitQuota(opId);
@@ -384,7 +417,24 @@ INSTRUCTION STRICTE : Le moteur SageMath n'a pas pu vérifier ce calcul exact ($
         mathComputation: mathData,
       };
     } catch (err) {
-      // Compensate reserved message quota on generation failure
+      // Preserve any streamed text so the client can recover an interrupted answer.
+      if (partialText.trim()) {
+        try {
+          await this.db.insert(message).values({
+            id: newId(),
+            conversationId: convo.id,
+            role: 'assistant',
+            content: partialText,
+            provider: 'groq',
+            model: null,
+            requestId: null,
+            createdAt: new Date(),
+            sources: { partial: true, interrupted: true },
+          });
+        } catch (persistError) {
+          this.logger.warn({ msg: 'partial_generation_persist_failed', reason: 'database_write_failed' });
+        }
+      }
       await this.quotas.compensateQuota(opId);
       throw err;
     }
