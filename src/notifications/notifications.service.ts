@@ -75,7 +75,7 @@ export class NotificationsService {
             ...(input.firstName ? { firstName: input.firstName } : {}),
           };
       const body = {
-        name: input.workflowId,
+        workflowId: input.workflowId,
         to: recipient,
         payload: input.payload ?? {},
       };
@@ -173,7 +173,7 @@ export class NotificationsService {
       const topicKey = 'announcements:all';
       const identifier = `${input.subscriberId}-announcements`;
       const preferences = [{
-        filter: { workflowIds: ['aurex-announcement'] },
+        workflowId: 'aurex-announcement',
         condition: {
           or: [
             { '===': [{ var: 'payload.targetAudience' }, 'all'] },
@@ -184,6 +184,7 @@ export class NotificationsService {
       const topicUrl = `${baseUrl}/v2/topics/${encodeURIComponent(topicKey)}/subscriptions`;
       const topicBody = {
         subscriptions: [{ identifier, subscriberId: input.subscriberId }],
+        name: 'Aurex announcements',
         preferences,
       };
 
@@ -198,7 +199,7 @@ export class NotificationsService {
         response = await fetchWithTimeout(
           'novu',
           `${topicUrl}/${encodeURIComponent(identifier)}`,
-          { method: 'PATCH', headers, body: JSON.stringify({ preferences }) },
+          { method: 'PATCH', headers, body: JSON.stringify({ name: 'Aurex announcements', preferences }) },
           5000,
         );
       }
