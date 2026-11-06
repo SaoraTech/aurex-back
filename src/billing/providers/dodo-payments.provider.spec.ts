@@ -34,4 +34,21 @@ describe('DodoPaymentsProvider', () => {
       webhookSignature: 'v1,invalid',
     })).toThrow('outside the accepted window');
   });
+  it('maps configured Dodo product IDs to exact Aurex plans', () => {
+    const values: Record<string, string> = {
+      dodoProductPlus: 'prod_plus',
+      dodoProductPro: 'prod_pro',
+      dodoProductPlusPromo: 'prod_plus_promo',
+      dodoProductProPromo: 'prod_pro_promo',
+    };
+    const config = { get: (key: string) => values[key] };
+    const provider = new DodoPaymentsProvider(config as any);
+
+    expect(provider.resolvePlanFromProductId('prod_plus')).toBe('plus');
+    expect(provider.resolvePlanFromProductId('prod_pro')).toBe('pro');
+    expect(provider.resolvePlanFromProductId('prod_plus_promo')).toBe('plus_promo');
+    expect(provider.resolvePlanFromProductId('prod_pro_promo')).toBe('pro_promo');
+    expect(provider.resolvePlanFromProductId('unknown')).toBeUndefined();
+  });
+
 });
