@@ -1,5 +1,5 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
-import { and, desc, eq, inArray, isNull, lte, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { DRIZZLE } from '../db/db.constants';
 import { announcement, announcementRead, notificationDelivery } from '../db/schema';
 import { newId } from '../common/ids';
@@ -154,6 +154,45 @@ export class AnnouncementsService {
     const topicKey = published.targetAudience === 'all'
       ? 'announcements:all'
       : `announcements:${published.targetAudience}`;
+    const now = new Date();
+    const deliveryIds = channels.map(channel => `announcement:${published.id}:${channel}`);
+
+    // Persist the outbox rows before calling Novu. If the process crashes after
+    // the external request, the deterministic transaction ID and stable row IDs
+    // allow the scheduled worker to safely retry the dispatch.
+    await this.db.insert(notificationDelivery).values(channels.map((channel, index) => ({
+      id: deliveryIds[index],
+      announcementId: published.id,
+      userId: null,
+      category: 'editorial',
+      channel,
+      provider: 'novu',
+      providerTransactionId: null,
+      status: 'pending',
+      errorCode: null,
+      attemptCount: 0,
+      createdAt: now,
+      updatedAt: now,
+    }))).onConflictDoNothing({ target: notificationDelivery.id });
+
+    const staleBefore = new Date(now.getTime() - 5 * 60 * 1000);
+    const claimed = await this.db.update(notificationDelivery).set({
+      status: 'processing',
+      updatedAt: now,
+    }).where(and(
+      inArray(notificationDelivery.id, deliveryIds),
+      or(
+        eq(notificationDelivery.status, 'pending'),
+        eq(notificationDelivery.status, 'failed'),
+        and(
+          eq(notificationDelivery.status, 'processing'),
+          lte(notificationDelivery.updatedAt, staleBefore),
+        ),
+      ),
+    )).returning({ id: notificationDelivery.id });
+
+    if (claimed.length === 0) return;
+
     const result = await this.notifications.triggerWorkflow({
       topicKey,
       workflowId: 'aurex-announcement',
@@ -169,20 +208,13 @@ export class AnnouncementsService {
       },
     });
 
-    await this.db.insert(notificationDelivery).values(channels.map(channel => ({
-      id: newId(),
-      announcementId: published.id,
-      userId: null,
-      category: 'editorial',
-      channel,
-      provider: 'novu',
+    await this.db.update(notificationDelivery).set({
       providerTransactionId: result.transactionId ?? null,
       status: result.sent ? 'triggered' : 'failed',
       errorCode: result.reason ?? null,
-      attemptCount: 1,
-      createdAt: new Date(),
+      attemptCount: sql`${notificationDelivery.attemptCount} + 1`,
       updatedAt: new Date(),
-    })));
+    }).where(inArray(notificationDelivery.id, claimed.map((row: { id: string }) => row.id)));
   }
 
   async publishDueScheduled() {
@@ -196,6 +228,34 @@ export class AnnouncementsService {
       await this.publish(item.id, 'system');
     }
     return { processed: due.length };
+  }
+
+  async retryFailedEditorialNotifications() {
+    const staleBefore = new Date(Date.now() - 5 * 60 * 1000);
+    const retryable = await this.db.select({
+      announcementId: notificationDelivery.announcementId,
+    }).from(notificationDelivery).where(and(
+      eq(notificationDelivery.category, 'editorial'),
+      inArray(notificationDelivery.status, ['failed', 'pending', 'processing']),
+      lte(notificationDelivery.updatedAt, staleBefore),
+      sql`${notificationDelivery.attemptCount} < 5`,
+    )).orderBy(notificationDelivery.createdAt).limit(100);
+
+    const announcementIds = [...new Set(
+      retryable.map((row: { announcementId: string | null }) => row.announcementId).filter(Boolean),
+    )] as string[];
+
+    let retried = 0;
+    for (const id of announcementIds) {
+      const item = await this.getById(id);
+      if (!item || item.status !== 'published') continue;
+      const mode = item.publicationMode === 'SCHEDULED' ? item.scheduledDeliveryMode : item.publicationMode;
+      if (mode !== 'MULTI_CHANNEL') continue;
+      await this.dispatchEditorialNotification(item);
+      retried += 1;
+    }
+
+    return { retried };
   }
 
   async getById(id: string) {
