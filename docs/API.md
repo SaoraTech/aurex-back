@@ -10,6 +10,12 @@ Base path: /api/v1. Better Auth routes are mounted under /api/auth/*.
 | GET | /entitlements/me | Authenticated user's effective plan, subscription status and quotas | Yes |
 | GET | /admin/dashboard | Admin dashboard totals and recent audit activity | Admin |
 | GET | /admin/publications | Admin publication list | Admin |
+| POST | /announcements | Create a publication (admin only) | Admin |
+| PATCH | /announcements/:id | Update a draft or scheduled publication (admin only) | Admin |
+| POST | /announcements/:id/publish | Publish immediately or execute a scheduled publication (admin only) | Admin |
+| GET | /announcements | List published in-app announcements | Optional |
+| POST | /announcements/:id/read | Mark an announcement as read | Yes |
+| GET | /announcements/unread-count | Current user's unread announcement count | Yes |
 | GET | /admin/billing/payments | Admin payment list | Admin |
 | GET | /admin/billing/subscriptions | Admin subscription list | Admin |
 | GET | /admin/settings | Safe integration configuration status (no secrets) | Admin |
