@@ -10,6 +10,7 @@ describe('HuaweiIapProvider', () => {
     get: (key: string) => ({
       huaweiIapClientId: 'huawei-client',
       huaweiIapClientSecret: 'huawei-secret',
+      huaweiIapPayloadSecret: 'huawei-payload-signing-secret-at-least-32-chars',
       huaweiIapApiBaseUrl: 'https://iap.example.test',
       huaweiIapPublicKey: publicPem,
       huaweiIapPlusProductId: 'aurex_plus_monthly',
@@ -59,4 +60,22 @@ describe('HuaweiIapProvider', () => {
     expect(result).toMatchObject({ userId: 'user_1', plan: 'plus', subscriptionId: 'sub_1', purchaseToken: 'purchase_token', isActive: true });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+  it('creates and verifies an Aurex-signed developerPayload', () => {
+    const provider = new HuaweiIapProvider(createConfig() as any);
+    const payload = provider.createDeveloperPayload('user_1');
+
+    expect(provider.resolveDeveloperPayload(payload)).toBe('user_1');
+    expect(() => provider.resolveDeveloperPayload(`${payload.slice(0, -1)}x`)).toThrow('signature is invalid');
+  });
+
+  it('rejects unsigned raw user IDs in production', () => {
+    const values = {
+      ...((createConfig() as any).get ? {} : {}),
+      huaweiIapPayloadSecret: 'huawei-payload-signing-secret-at-least-32-chars',
+      nodeEnv: 'production',
+    };
+    const provider = new HuaweiIapProvider({ get: (key: string) => (values as any)[key] } as any);
+    expect(() => provider.resolveDeveloperPayload('user_1')).toThrow('must be signed');
+  });
+
 });
