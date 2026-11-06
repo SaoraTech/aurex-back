@@ -30,8 +30,11 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Run tests
+      - name: Run unit tests
         run: npm test
+
+      - name: Run backend journey and invariant tests
+        run: npm run test:e2e
 
       - name: Lint
         run: npm run lint
