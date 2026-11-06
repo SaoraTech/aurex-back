@@ -39,6 +39,12 @@ export class DodoPaymentsProvider {
     return Boolean(this.apiKey && this.productId(plan));
   }
 
+  resolvePlanFromProductId(productId: unknown): CheckoutRequest['plan'] | undefined {
+    if (typeof productId !== 'string' || !productId) return undefined;
+    const plans: CheckoutRequest['plan'][] = ['plus', 'pro', 'plus_promo', 'pro_promo'];
+    return plans.find(plan => this.productId(plan) === productId);
+  }
+
   async initiateCheckout(request: CheckoutRequest): Promise<CheckoutResponse> {
     const productId = this.productId(request.plan);
     if (!this.apiKey || !productId) {
