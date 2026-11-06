@@ -51,7 +51,7 @@ export class IdentityService {
     ];
     if (web.performed) lines.push(`Recherche web : EFFECTUÉE pour cette réponse (${web.sourceCount ?? 0} source(s) fournie(s) ci-dessous, non fiables par nature).`);
     else if (web.requested) lines.push(`Recherche web : demandée mais NON réalisée (${web.failureCode ?? 'indisponible'}). N'affirme pas avoir consulté le Web ; indique-le à l'utilisateur si pertinent.`);
-    else lines.push(`Recherche web : non demandée pour cette réponse (${snap.webSearch.tavily === 'configured' ? 'disponible sur demande' : 'indisponible sur ce serveur'}).`);
+    else lines.push(`Recherche web : non demandée pour cette réponse (${snap.webSearch.brave === 'configured' ? 'disponible sur demande' : 'indisponible sur ce serveur'}).`);
     lines.push("Lecture des documents de la bibliothèque : NON disponible pour le modèle (les fichiers sont stockés, pas lus).");
     lines.push("Fonctions vocales (lecture à voix haute, dictée) : gérées par l'application, pas par toi.");
     return lines;
@@ -63,7 +63,7 @@ export class IdentityService {
     const llm = snap.llm.filter(p => p.state === 'configured').map(p => p.provider);
     return [
       `Modèles de langage configurés : ${llm.length ? llm.join(', ') : 'aucun'} (un seul génère chaque réponse).`,
-      `Recherche web : ${snap.webSearch.tavily === 'configured' ? 'Tavily' : 'aucun fournisseur actif'}.`,
+      `Recherche web : ${snap.webSearch.brave === 'configured' ? 'Brave Search' : 'aucun fournisseur actif'}.`,
     ];
   }
 
