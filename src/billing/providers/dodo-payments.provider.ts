@@ -36,7 +36,7 @@ export class DodoPaymentsProvider {
   }
 
   isConfiguredForPlan(plan: CheckoutRequest['plan']): boolean {
-    return Boolean(this.apiKey && this.productId(plan));
+    return Boolean(this.apiKey && this.productId(plan) && this.config.get<string>('dodoPaymentsReturnUrl'));
   }
 
   resolvePlanFromProductId(productId: unknown): CheckoutRequest['plan'] | undefined {
@@ -51,7 +51,7 @@ export class DodoPaymentsProvider {
       throw new Error('Dodo Payments API key or product mapping is not configured');
     }
 
-    const returnUrl = request.returnUrl ?? this.config.get<string>('dodoPaymentsReturnUrl');
+    const returnUrl = this.config.get<string>('dodoPaymentsReturnUrl');
     if (!returnUrl) throw new Error('Dodo Payments return URL is not configured');
 
     const response = await fetchWithTimeout('dodo_payments', `${this.baseUrl}/checkout-sessions`, {
