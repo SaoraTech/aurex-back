@@ -10,6 +10,7 @@ class FeedbackDto { @IsIn(['positive','negative','report','math_error']) type!:'
 @ApiTags('messages') @ApiBearerAuth() @UseGuards(RequireUserGuard) @Protect('read') @Controller('conversations/:conversationId/messages')
 export class MessagesController {
   constructor(private readonly messages:MessagesService){}
+  @Get(':messageId/share') share(@CurrentUserId() uid:string,@Param('conversationId') cid:string,@Param('messageId') mid:string){return this.messages.share(uid,cid,mid);}
   @Get(':messageId/versions') versions(@CurrentUserId() uid:string,@Param('conversationId') cid:string,@Param('messageId') mid:string){return this.messages.versions(uid,cid,mid);}
   @Patch(':messageId') @Protect('chat') edit(@CurrentUserId() uid:string,@Param('conversationId') cid:string,@Param('messageId') mid:string,@Body() dto:EditMessageDto){return this.messages.edit(uid,cid,mid,dto.content);}
   @Post(':messageId/versions/:versionId/restore') @Protect('chat') restoreVersion(@CurrentUserId() uid:string,@Param('conversationId') cid:string,@Param('messageId') mid:string,@Param('versionId') vid:string){return this.messages.restoreVersion(uid,cid,mid,vid);}
