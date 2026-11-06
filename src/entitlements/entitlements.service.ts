@@ -128,7 +128,7 @@ export class EntitlementsService {
     const due = await this.db.select({ id: subscription.id, userId: subscription.userId })
       .from(subscription)
       .where(and(
-        eq(subscription.status, 'active'),
+        inArray(subscription.status, ['active', 'past_due']),
         isNotNull(subscription.currentPeriodEnd),
         lte(subscription.currentPeriodEnd, now),
       ))
@@ -142,7 +142,7 @@ export class EntitlementsService {
       updatedAt: now,
     }).where(and(
       inArray(subscription.id, due.map((row: { id: string }) => row.id)),
-      eq(subscription.status, 'active'),
+      inArray(subscription.status, ['active', 'past_due']),
       lte(subscription.currentPeriodEnd, now),
     )).returning({ userId: subscription.userId });
 
