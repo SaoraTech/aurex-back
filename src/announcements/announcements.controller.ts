@@ -1,4 +1,18 @@
 import {
+  ArrayNotEmpty,
+  IsArray,
+  IsBoolean,
+  IsDateString,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Min,
+  MinLength,
+} from 'class-validator';
+import { Type } from 'class-transformer';
+import {
   Body,
   Controller,
   Get,
@@ -10,8 +24,6 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { IsBoolean, IsIn, IsInt, IsOptional, IsString, MaxLength, Min, MinLength } from 'class-validator';
-import { Type } from 'class-transformer';
 import { RequireUserGuard } from '../auth/require-user.guard';
 import { RequireAdminGuard } from '../auth/require-admin.guard';
 import { CurrentUserId } from '../common/user.decorator';
@@ -20,7 +32,9 @@ import { PlansService } from '../plans/plans.service';
 import { AnnouncementsService } from './announcements.service';
 import {
   AnnouncementCategory,
+  NotificationChannel,
   PublicationMode,
+  ScheduledDeliveryMode,
   TargetAudience,
 } from './announcement.types';
 
@@ -47,12 +61,22 @@ class CreateAnnouncementBodyDto {
   link?: string;
 
   @IsOptional()
-  @IsIn(['manual', 'automatic', 'hybrid'])
+  @IsIn(['IN_APP_ONLY', 'MULTI_CHANNEL', 'SCHEDULED'])
   publicationMode?: PublicationMode;
 
   @IsOptional()
-  @IsBoolean()
-  autoPublish?: boolean;
+  @IsDateString()
+  scheduledAt?: string;
+
+  @IsOptional()
+  @IsIn(['IN_APP_ONLY', 'MULTI_CHANNEL'])
+  scheduledDeliveryMode?: ScheduledDeliveryMode;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsIn(['push', 'email'], { each: true })
+  notificationChannels?: NotificationChannel[];
 }
 
 class UpdateAnnouncementBodyDto {
@@ -79,12 +103,24 @@ class UpdateAnnouncementBodyDto {
   @IsOptional()
   @IsString() @MaxLength(500)
   link?: string;
-}
 
-class PublishBodyDto {
   @IsOptional()
-  @IsBoolean()
-  sendNotification?: boolean;
+  @IsIn(['IN_APP_ONLY', 'MULTI_CHANNEL', 'SCHEDULED'])
+  publicationMode?: PublicationMode;
+
+  @IsOptional()
+  @IsDateString()
+  scheduledAt?: string | null;
+
+  @IsOptional()
+  @IsIn(['IN_APP_ONLY', 'MULTI_CHANNEL'])
+  scheduledDeliveryMode?: ScheduledDeliveryMode | null;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsIn(['push', 'email'], { each: true })
+  notificationChannels?: NotificationChannel[];
 }
 
 class ListAnnouncementsQueryDto {
@@ -112,71 +148,75 @@ export class AnnouncementsController {
     private readonly users: RequireUserGuard,
   ) {}
 
-  /**
-   * Public / Authenticated route to consult published announcements.
-   * Tailored to user plan if logged in, or generic ('free') if anonymous.
-   */
+  @Get('unread-count')
+  @ApiBearerAuth()
+  @UseGuards(RequireUserGuard)
+  @Protect('read')
+  async unreadCount(@Req() req: any) {
+    const user = await this.users.resolve(req);
+    const plan = await this.plans.getEffectivePlan(user.id);
+    return this.announcements.getUnreadCount(user.id, plan);
+  }
+
   @Get()
   @Protect('read')
   async listPublished(@Req() req: any, @Query() query: ListAnnouncementsQueryDto) {
     let plan = 'free';
+    let userId: string | undefined;
     try {
       const user = await this.users.resolve(req);
       if (user?.id) {
+        userId = user.id;
         plan = await this.plans.getEffectivePlan(user.id);
       }
     } catch {
-      // Unauthenticated callers receive public/free announcements
+      // Unauthenticated callers receive public/free announcements.
     }
 
-    return this.announcements.listPublished(plan, query.category, query.limit, query.offset);
+    return this.announcements.listPublished(plan, query.category, query.limit, query.offset, userId);
   }
 
-  /**
-   * Admin route: List all announcements across statuses.
-   */
+  @Post(':id/read')
+  @ApiBearerAuth()
+  @UseGuards(RequireUserGuard)
+  @Protect('default')
+  markRead(@CurrentUserId() userId: string, @Param('id') id: string) {
+    return this.announcements.markRead(userId, id);
+  }
+
   @Get('admin/all')
   @ApiBearerAuth()
   @UseGuards(RequireUserGuard, RequireAdminGuard)
   @Protect('read')
-  async listAdmin(@Query('status') status?: string, @Query('limit') limit?: number, @Query('offset') offset?: number) {
+  async listAdmin(
+    @Query('status') status?: string,
+    @Query('limit') limit?: number,
+    @Query('offset') offset?: number,
+  ) {
     return this.announcements.listAdmin(status, limit, offset);
   }
 
-  /**
-   * Admin route: Create an announcement.
-   */
   @Post()
   @ApiBearerAuth()
   @UseGuards(RequireUserGuard, RequireAdminGuard)
   @Protect('default')
-  async create(@CurrentUserId() adminId: string, @Body() dto: CreateAnnouncementBodyDto) {
+  create(@CurrentUserId() adminId: string, @Body() dto: CreateAnnouncementBodyDto) {
     return this.announcements.create(dto, adminId, true);
   }
 
-  /**
-   * Admin route: Update an unpublished announcement.
-   */
   @Patch(':id')
   @ApiBearerAuth()
   @UseGuards(RequireUserGuard, RequireAdminGuard)
   @Protect('default')
-  async update(@Param('id') id: string, @Body() dto: UpdateAnnouncementBodyDto) {
+  update(@Param('id') id: string, @Body() dto: UpdateAnnouncementBodyDto) {
     return this.announcements.update(id, dto);
   }
 
-  /**
-   * Admin route: Publish an announcement and optionally notify subscribers via Novu.
-   */
   @Post(':id/publish')
   @ApiBearerAuth()
   @UseGuards(RequireUserGuard, RequireAdminGuard)
   @Protect('default')
-  async publish(
-    @Param('id') id: string,
-    @CurrentUserId() adminId: string,
-    @Body() body: PublishBodyDto,
-  ) {
-    return this.announcements.publish(id, body, adminId);
+  publish(@Param('id') id: string, @CurrentUserId() adminId: string) {
+    return this.announcements.publish(id, adminId);
   }
 }
