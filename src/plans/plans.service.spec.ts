@@ -101,4 +101,41 @@ describe('PlansService - Pricing, Promotions & Retention', () => {
     const plan = await svc.getEffectivePlan('u3');
     expect(plan).toBe('free');
   });
+
+  it('keeps an active subscription with no fixed expiration date', async () => {
+    mockDb.select.mockReturnValue({
+      from: jest.fn(() => ({
+        where: jest.fn(() => ({
+          orderBy: jest.fn(() => ({
+            limit: jest.fn().mockResolvedValue([{
+              plan: 'pro',
+              status: 'active',
+              currentPeriodStart: new Date(),
+              currentPeriodEnd: null,
+              cancelAtPeriodEnd: false,
+            }]),
+          })),
+        })),
+      })),
+    });
+
+    const info = await svc.getSubscriptionInfo('u4');
+    expect(info.plan).toBe('pro');
+    expect(info.status).toBe('active');
+  });
+
+  it('does not silently downgrade paid access when the database query fails', async () => {
+    mockDb.select.mockReturnValue({
+      from: jest.fn(() => ({
+        where: jest.fn(() => ({
+          orderBy: jest.fn(() => ({
+            limit: jest.fn().mockRejectedValue(new Error('database unavailable')),
+          })),
+        })),
+      })),
+    });
+
+    await expect(svc.getSubscriptionInfo('u5')).rejects.toThrow('database unavailable');
+  });
+
 });
