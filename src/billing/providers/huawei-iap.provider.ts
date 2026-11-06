@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { constants, verify as verifySignature } from 'node:crypto';
+import { createHmac, constants, timingSafeEqual, verify as verifySignature } from 'node:crypto';
 import { fetchWithTimeout } from '../../common/http';
 
 export interface HuaweiVerifiedSubscription {
@@ -27,11 +27,48 @@ export class HuaweiIapProvider {
     return Boolean(
       this.config.get<string>('huaweiIapClientId') &&
       this.config.get<string>('huaweiIapClientSecret') &&
+      this.config.get<string>('huaweiIapPayloadSecret') &&
       this.config.get<string>('huaweiIapApiBaseUrl') &&
       this.config.get<string>('huaweiIapPublicKey') &&
       this.config.get<string>('huaweiIapPlusProductId') &&
       this.config.get<string>('huaweiIapProProductId'),
     );
+  }
+
+  createDeveloperPayload(userId: string): string {
+    if (!userId) throw new Error('Aurex user ID is required');
+    const secret = this.config.get<string>('huaweiIapPayloadSecret');
+    if (!secret) throw new Error('Huawei developer-payload signing secret is not configured');
+    const encodedPayload = Buffer.from(JSON.stringify({ version: 1, userId }), 'utf8').toString('base64url');
+    const signature = createHmac('sha256', secret).update(encodedPayload).digest('base64url');
+    return `${encodedPayload}.${signature}`;
+  }
+
+  resolveDeveloperPayload(value: string): string {
+    const secret = this.config.get<string>('huaweiIapPayloadSecret');
+    if (!secret) throw new Error('Huawei developer-payload signing secret is not configured');
+    const [encodedPayload, suppliedSignature, extra] = String(value ?? '').split('.');
+    if (encodedPayload && suppliedSignature && !extra) {
+      const expected = createHmac('sha256', secret).update(encodedPayload).digest();
+      const supplied = Buffer.from(suppliedSignature, 'base64url');
+      if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
+        throw new Error('Huawei developerPayload signature is invalid');
+      }
+      const payload = JSON.parse(Buffer.from(encodedPayload, 'base64url').toString('utf8')) as {
+        version?: number;
+        userId?: string;
+      };
+      if (payload.version !== 1 || typeof payload.userId !== 'string' || !payload.userId.trim()) {
+        throw new Error('Huawei developerPayload content is invalid');
+      }
+      return payload.userId;
+    }
+
+    // Raw user IDs remain accepted only for local development and tests.
+    if (this.config.get<string>('nodeEnv') !== 'production' && value && !value.includes('.')) {
+      return value.trim();
+    }
+    throw new Error('Huawei developerPayload must be signed by the Aurex backend');
   }
 
   verifyNotification(rawBody: Buffer | string): Record<string, any> {
@@ -86,14 +123,7 @@ export class HuaweiIapProvider {
     const expirationDate = new Date(Number(purchase.expirationDate ?? purchase.expirationDateMillis));
     const purchaseTimeCandidate = new Date(Number(purchase.purchaseTime ?? purchase.purchaseTimeMillis));
     const purchaseTime = Number.isFinite(purchaseTimeCandidate.getTime()) ? purchaseTimeCandidate : new Date();
-    const payload = String(purchase.developerPayload ?? '');
-    let userId = payload;
-    try {
-      const parsed = JSON.parse(payload);
-      userId = String(parsed.userId ?? '');
-    } catch {
-      // Older clients may send the user ID directly as developerPayload.
-    }
+    const userId = this.resolveDeveloperPayload(String(purchase.developerPayload ?? ''));
 
     if (
       Number(purchase.kind) !== 2 ||
