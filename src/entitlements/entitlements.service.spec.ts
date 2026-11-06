@@ -81,4 +81,40 @@ describe('EntitlementsService', () => {
     expect(notificationSubscribers.sync).toHaveBeenCalledWith('user_1');
   });
 
+  it('expires elapsed subscriptions and refreshes each affected Novu audience once', async () => {
+    const due = [
+      { id: 'sub_1', userId: 'user_1' },
+      { id: 'sub_2', userId: 'user_1' },
+      { id: 'sub_3', userId: 'user_2' },
+    ];
+    const db = {
+      select: jest.fn(() => ({
+        from: jest.fn(() => ({
+          where: jest.fn(() => ({
+            orderBy: jest.fn(() => ({
+              limit: jest.fn().mockResolvedValue(due),
+            })),
+          })),
+        })),
+      })),
+      update: jest.fn(() => ({
+        set: jest.fn(() => ({
+          where: jest.fn(() => ({
+            returning: jest.fn().mockResolvedValue([{ userId: 'user_1' }, { userId: 'user_2' }]),
+          })),
+        })),
+      })),
+    };
+    const notificationSubscribers = { sync: jest.fn().mockResolvedValue({ sent: true }) };
+    const service = new EntitlementsService({} as any, db as any, notificationSubscribers as any);
+
+    await expect(service.expireElapsedSubscriptions()).resolves.toEqual({
+      expiredSubscriptions: 2,
+      usersSynced: 2,
+    });
+    expect(notificationSubscribers.sync).toHaveBeenCalledTimes(2);
+    expect(notificationSubscribers.sync).toHaveBeenCalledWith('user_1');
+    expect(notificationSubscribers.sync).toHaveBeenCalledWith('user_2');
+  });
+
 });
