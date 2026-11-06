@@ -45,6 +45,50 @@ export class AdminService {
     };
   }
 
+  async listAuditEvents(
+    action?: string,
+    actorUserId?: string,
+    targetType?: string,
+    limitInput?: string,
+    offsetInput?: string,
+  ) {
+    const limit = pageValue(limitInput, 50, 100);
+    const offset = pageValue(offsetInput, 0, 1000000);
+    const conditions = [];
+    if (action) conditions.push(eq(auditEvent.action, action));
+    if (actorUserId) conditions.push(eq(auditEvent.actorUserId, actorUserId));
+    if (targetType) conditions.push(eq(auditEvent.targetType, targetType));
+    const where = conditions.length ? and(...conditions) : undefined;
+
+    const [items, countRows] = await Promise.all([
+      this.db.select({
+        id: auditEvent.id,
+        actorUserId: auditEvent.actorUserId,
+        actorEmail: user.email,
+        action: auditEvent.action,
+        targetType: auditEvent.targetType,
+        targetId: auditEvent.targetId,
+        requestId: auditEvent.requestId,
+        createdAt: auditEvent.createdAt,
+      }).from(auditEvent)
+        .leftJoin(user, eq(auditEvent.actorUserId, user.id))
+        .where(where)
+        .orderBy(desc(auditEvent.createdAt))
+        .limit(limit)
+        .offset(offset),
+      this.db.select({ count: sql<number>`count(*)` })
+        .from(auditEvent)
+        .where(where),
+    ]);
+
+    return {
+      items,
+      total: Number(countRows[0]?.count ?? 0),
+      limit,
+      offset,
+    };
+  }
+
   async listPayments(status?: string, limitInput?: string, offsetInput?: string) {
     const limit = pageValue(limitInput, 50, 100);
     const offset = pageValue(offsetInput, 0, 1000000);
