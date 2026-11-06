@@ -7,11 +7,10 @@ Backend API for **Aurex**, Saora's mathematics-focused conversational assistant.
 - Database: PostgreSQL (Neon) with Drizzle ORM
 - Authentication: Better Auth
 - Speech: Azure AI Speech (STT + TTS), backend only
-- Mathematical computation: planned SMP integration (not operational yet)
 - Deployment target: Render
 - Repository: https://github.com/SaoraTech/aurex-back
 
-Aurex helps learners understand mathematical concepts, follow rigorous explanations and improve independent reasoning. The backend provides authenticated APIs, plan enforcement, mathematical services, speech endpoints and operational controls for Aurex clients.
+Aurex helps learners understand mathematical concepts, follow rigorous explanations and improve independent reasoning. The backend provides authenticated APIs, plan enforcement, conversational AI, speech endpoints and operational controls for Aurex clients.
 
 ## Architecture
 
@@ -29,8 +28,8 @@ Mobile / Web / Desktop clients
                |
      +---------+-----------+
      |         |           |
-    Groq     SMP (planned)   Azure AI Speech
-   (LLM)     (math)      (STT + TTS)
+    Groq           Azure AI Speech
+   (LLM)              (STT + TTS)
                |
         Neon PostgreSQL
 ~~~
