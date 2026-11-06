@@ -71,6 +71,25 @@ export const subscription = pgTable('subscription', {
   createdAt: timestamp('created_at').notNull().defaultNow(), updatedAt: timestamp('updated_at').notNull().defaultNow(),
 }, t => ({ userIdx: index('subscription_user_idx').on(t.userId), providerIdx: index('subscription_provider_idx').on(t.providerSubscriptionId) }));
 
+
+/** Idempotency ledger for verified provider webhooks. */
+export const billingWebhookEvent = pgTable('billing_webhook_event', {
+  id: text('id').primaryKey(),
+  provider: varchar('provider', { length: 30 }).notNull(),
+  providerEventId: text('provider_event_id').notNull(),
+  eventType: varchar('event_type', { length: 100 }).notNull(),
+  status: varchar('status', { length: 20 }).notNull().default('received'),
+  attempts: integer('attempts').notNull().default(0),
+  errorCode: text('error_code'),
+  receivedAt: timestamp('received_at').notNull().defaultNow(),
+  processedAt: timestamp('processed_at'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, t => ({
+  providerEventIdx: uniqueIndex('billing_webhook_provider_event_uq').on(t.provider, t.providerEventId),
+  statusIdx: index('billing_webhook_status_idx').on(t.status, t.receivedAt),
+}));
+
 export const payment = pgTable('payment', {
   id: text('id').primaryKey(), userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
   provider: text('provider').notNull(), providerReference: text('provider_reference'),
