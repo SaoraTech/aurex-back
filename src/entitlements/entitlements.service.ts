@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, lte, sql } from 'drizzle-orm';
 import { DRIZZLE } from '../db/db.constants';
 import { subscription } from '../db/schema';
 import { newId } from '../common/ids';
@@ -120,6 +120,37 @@ export class EntitlementsService {
     } catch (error) {
       this.logger.warn(`Novu membership sync failed for user ${userId}: ${(error as Error).message}`);
     }
+  }
+
+  async expireElapsedSubscriptions(limit = 500) {
+    if (!this.db) return { expiredSubscriptions: 0, usersSynced: 0 };
+    const now = new Date();
+    const due = await this.db.select({ id: subscription.id, userId: subscription.userId })
+      .from(subscription)
+      .where(and(
+        eq(subscription.status, 'active'),
+        isNotNull(subscription.currentPeriodEnd),
+        lte(subscription.currentPeriodEnd, now),
+      ))
+      .orderBy(asc(subscription.currentPeriodEnd))
+      .limit(Math.min(Math.max(1, limit), 1000));
+
+    if (due.length === 0) return { expiredSubscriptions: 0, usersSynced: 0 };
+
+    const updated = await this.db.update(subscription).set({
+      status: 'expired',
+      updatedAt: now,
+    }).where(and(
+      inArray(subscription.id, due.map((row: { id: string }) => row.id)),
+      eq(subscription.status, 'active'),
+    )).returning({ userId: subscription.userId });
+
+    const userIds = [...new Set(updated.map((row: { userId: string }) => row.userId))];
+    for (const userId of userIds) {
+      await this.syncNotificationMembership(userId);
+    }
+
+    return { expiredSubscriptions: updated.length, usersSynced: userIds.length };
   }
 
 }
