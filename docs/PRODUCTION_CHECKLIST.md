@@ -8,7 +8,7 @@
 - [ ] Verify authentication, session revocation, email verification and password-reset flows.
 - [ ] Verify plan resolution and all feature quotas server-side.
 - [ ] Test chat idempotency and concurrent quota reservations.
-- [ ] Validate LLM timeouts, typed errors and cost controls. SMP computation must remain disabled until its implementation is deployed.
+- [ ] Validate LLM timeouts, typed errors, mathematical-answer accuracy disclosures and cost controls.
 - [ ] Verify payment webhook signatures, idempotency, reconciliation, refunds and subscription state transitions.
 - [ ] Verify private R2 bucket, ownership checks, signed URLs, MIME sniffing and size limits.
 - [ ] Add malware scanning before automatically processing user documents.
