@@ -11,6 +11,7 @@ import { IdentityModule } from './identity/identity.module';
 import { AiModule } from './ai/ai.module';
 import { MathModule } from './math/math.module';
 import { ConversationsModule } from './conversations/conversations.module';
+import { MessagesModule } from './messages/messages.module';
 import { ChatModule } from './chat/chat.module';
 import { PlansModule } from './plans/plans.module';
 import { BillingModule } from './billing/billing.module';
@@ -38,6 +39,7 @@ import { QuotasModule } from './quotas/quotas.module';
     AiModule,
     MathModule,
     ConversationsModule,
+    MessagesModule,
     ChatModule,
     PlansModule,
     BillingModule,
