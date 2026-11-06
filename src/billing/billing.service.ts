@@ -37,19 +37,26 @@ export class BillingService {
     }
 
     // 1. Idempotency: if the client supplied a key and a transaction already exists, return it.
-    let terminalPaymentToRotate: string | undefined;
+    let terminalPaymentToRotate: { id: string; idempotencyKey: string } | undefined;
     if (idempotencyKey && this.db) {
       const [existing] = await this.db
         .select()
         .from(payment)
-        .where(and(eq(payment.userId, userId), eq(payment.idempotencyKey, idempotencyKey)))
+        .where(and(
+          eq(payment.userId, userId),
+          eq(payment.provider, providerName),
+          or(
+            eq(payment.idempotencyKey, idempotencyKey),
+            eq(payment.idempotencyKey, `${providerName}:${idempotencyKey}`),
+          ),
+        ))
         .limit(1);
 
       if (existing) {
         if (existing.status === 'failed' || existing.status === 'cancelled' || existing.status === 'refunded') {
           // Rotate the terminal attempt away from the client key so a fresh local
           // payment row can safely claim that same client idempotency key.
-          terminalPaymentToRotate = existing.id;
+          terminalPaymentToRotate = { id: existing.id, idempotencyKey: existing.idempotencyKey };
         } else {
           this.logger.log(`Returning existing payment ${existing.id} for idempotency key ${idempotencyKey}`);
           return {
@@ -93,17 +100,17 @@ export class BillingService {
 
     // 4. Create local payment order record before external call
     const localPaymentId = newId();
-    const finalIdempotencyKey = idempotencyKey ?? `idem_${localPaymentId}`;
+    const finalIdempotencyKey = idempotencyKey ? `${providerName}:${idempotencyKey}` : `idem_${localPaymentId}`;
 
     try {
       const createPayment = async (executor: any) => {
         if (terminalPaymentToRotate && idempotencyKey) {
           await executor.update(payment).set({
-            idempotencyKey: `${idempotencyKey}:closed:${terminalPaymentToRotate}`,
+            idempotencyKey: `${finalIdempotencyKey}:closed:${terminalPaymentToRotate.id}`,
             updatedAt: new Date(),
           }).where(and(
-            eq(payment.id, terminalPaymentToRotate),
-            eq(payment.idempotencyKey, idempotencyKey),
+            eq(payment.id, terminalPaymentToRotate.id),
+            eq(payment.idempotencyKey, terminalPaymentToRotate.idempotencyKey),
             or(
               eq(payment.status, 'failed'),
               eq(payment.status, 'cancelled'),
@@ -141,7 +148,11 @@ export class BillingService {
         const [existing] = await this.db
           .select()
           .from(payment)
-          .where(and(eq(payment.userId, userId), eq(payment.idempotencyKey, finalIdempotencyKey)))
+          .where(and(
+            eq(payment.userId, userId),
+            eq(payment.provider, providerName),
+            eq(payment.idempotencyKey, finalIdempotencyKey),
+          ))
           .limit(1);
         if (existing) {
           return {
@@ -198,7 +209,7 @@ export class BillingService {
           updatedAt: new Date(),
         })
         .where(eq(payment.id, localPaymentId));
-      throw badGateway('PAYMENT_INITIATION_FAILED', `Échec d’initialisation du paiement : ${err.message}`);
+      throw badGateway('PAYMENT_INITIATION_FAILED', 'Le fournisseur de paiement n’a pas pu initialiser le paiement. Réessayez ultérieurement.');
     }
   }
 
