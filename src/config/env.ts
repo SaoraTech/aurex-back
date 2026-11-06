@@ -47,7 +47,7 @@ export const EnvSchema = z.object({
   REVENUECAT_PRO_ENTITLEMENT_ID: optStr,
   HUAWEI_IAP_CLIENT_ID: optStr,
   HUAWEI_IAP_CLIENT_SECRET: optStr,
-  HUAWEI_IAP_PAYLOAD_SECRET: z.string().min(32).optional(),
+  HUAWEI_IAP_PAYLOAD_SECRET: z.preprocess(value => value === '' ? undefined : value, z.string().min(32).optional()),
   HUAWEI_IAP_API_BASE_URL: z.string().url().optional(),
   HUAWEI_IAP_PUBLIC_KEY: optStr,
   HUAWEI_IAP_SIGNATURE_ALGORITHM: z.enum(['SHA256withRSA','SHA256withRSA/PSS']).default('SHA256withRSA'),
