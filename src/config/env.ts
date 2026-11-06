@@ -49,6 +49,7 @@ export const EnvSchema = z.object({
   HUAWEI_IAP_CLIENT_SECRET: optStr,
   HUAWEI_IAP_API_BASE_URL: z.string().url().optional(),
   HUAWEI_IAP_PUBLIC_KEY: optStr,
+  HUAWEI_IAP_SIGNATURE_ALGORITHM: z.enum(['SHA256withRSA','SHA256withRSA/PSS']).default('SHA256withRSA'),
   HUAWEI_IAP_PLUS_PRODUCT_ID: optStr,
   HUAWEI_IAP_PRO_PRODUCT_ID: optStr,
   ARCJET_KEY: optStr, ARCJET_MODE: z.enum(['live','dry_run','disabled']).optional(),

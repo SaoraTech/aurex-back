@@ -7,6 +7,7 @@ import { billingWebhookEvent, payment, subscription, user } from '../db/schema';
 import { DodoPaymentsProvider } from './providers/dodo-payments.provider';
 import { RevenueCatProvider } from './providers/revenuecat.provider';
 import { HuaweiIapProvider } from './providers/huawei-iap.provider';
+import { EntitlementsService } from '../entitlements/entitlements.service';
 
 @Injectable()
 export class BillingWebhooksService {
@@ -17,6 +18,7 @@ export class BillingWebhooksService {
     private readonly dodo: DodoPaymentsProvider,
     private readonly revenueCat: RevenueCatProvider,
     private readonly huawei: HuaweiIapProvider,
+    private readonly entitlements: EntitlementsService,
   ) {}
 
   async handleDodo(rawBody: Buffer | string, headers: {
@@ -297,11 +299,7 @@ export class BillingWebhooksService {
     if (!userId) throw notFound('REVENUECAT_USER_NOT_FOUND', 'Utilisateur Aurex associé à l’achat RevenueCat introuvable.');
 
     if (!plan) {
-      await this.db.update(subscription).set({ status: 'expired', updatedAt: now }).where(and(
-        eq(subscription.userId, userId),
-        eq(subscription.provider, 'revenuecat'),
-        eq(subscription.status, 'active'),
-      ));
+      await this.entitlements.expireProviderSubscriptions(userId, 'revenuecat');
       return { status: 'expired', plan: 'free' };
     }
 
@@ -332,45 +330,7 @@ export class BillingWebhooksService {
     currentPeriodEnd: Date | null;
     cancelAtPeriodEnd: boolean;
   }) {
-    const [existing] = await this.db.select().from(subscription).where(and(
-      eq(subscription.userId, input.userId),
-      eq(subscription.provider, input.provider),
-      eq(subscription.providerSubscriptionId, input.providerSubscriptionId),
-    )).limit(1);
-
-    const values = {
-      plan: input.plan,
-      status: input.status,
-      currentPeriodStart: input.currentPeriodStart,
-      currentPeriodEnd: input.currentPeriodEnd,
-      cancelAtPeriodEnd: input.cancelAtPeriodEnd,
-      updatedAt: new Date(),
-    };
-
-    if (existing) {
-      await this.db.update(subscription).set(values).where(eq(subscription.id, existing.id));
-      return;
-    }
-
-    await this.db.update(subscription).set({ status: 'canceled', updatedAt: new Date() }).where(and(
-      eq(subscription.userId, input.userId),
-      eq(subscription.provider, input.provider),
-      eq(subscription.status, 'active'),
-    ));
-
-    await this.db.insert(subscription).values({
-      id: newId(),
-      userId: input.userId,
-      plan: input.plan,
-      status: input.status,
-      provider: input.provider,
-      providerSubscriptionId: input.providerSubscriptionId,
-      currentPeriodStart: input.currentPeriodStart,
-      currentPeriodEnd: input.currentPeriodEnd,
-      cancelAtPeriodEnd: input.cancelAtPeriodEnd,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
+    return this.entitlements.activateSubscription(input);
   }
 
   private toDate(value: unknown): Date | null {

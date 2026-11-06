@@ -7,6 +7,7 @@ import { payment, subscription, user } from '../db/schema';
 import { PlanName, PlansService } from '../plans/plans.service';
 import { JemenipayProvider } from './providers/jemenipay.provider';
 import { DodoPaymentsProvider } from './providers/dodo-payments.provider';
+import { EntitlementsService } from '../entitlements/entitlements.service';
 import { PaymentMethodType } from './providers/payment-provider.interface';
 
 @Injectable()
@@ -18,6 +19,7 @@ export class BillingService {
     private readonly plans: PlansService,
     @Optional() @Inject(DRIZZLE) private readonly db?: any,
     @Optional() private readonly dodo?: DodoPaymentsProvider,
+    @Optional() private readonly entitlements?: EntitlementsService,
   ) {}
 
   async checkout(
@@ -287,34 +289,38 @@ export class BillingService {
           await updateQuery;
         }
 
-        // 2. Deactivate any previous active subscription for this user
-        await tx
-          .update(subscription)
-          .set({
-            status: 'canceled',
+        // 2. Centralize subscription rights through EntitlementsModule.
+        if (this.entitlements) {
+          await this.entitlements.activateSubscription({
+            userId: local.userId,
+            plan,
+            status: 'active',
+            provider: 'jemenipay',
+            providerSubscriptionId: verified.externalReference ?? verified.paymentId,
+            currentPeriodStart,
+            currentPeriodEnd,
+            cancelAtPeriodEnd: false,
+          }, tx);
+        } else {
+          // Compatibility fallback for isolated legacy unit tests.
+          await tx.update(subscription).set({ status: 'canceled', updatedAt: now }).where(and(
+            eq(subscription.userId, local.userId),
+            eq(subscription.status, 'active'),
+          ));
+          await tx.insert(subscription).values({
+            id: newId(),
+            userId: local.userId,
+            plan,
+            status: 'active',
+            provider: 'jemenipay',
+            providerSubscriptionId: verified.externalReference ?? verified.paymentId,
+            currentPeriodStart,
+            currentPeriodEnd,
+            cancelAtPeriodEnd: false,
+            createdAt: now,
             updatedAt: now,
-          })
-          .where(
-            and(
-              eq(subscription.userId, local.userId),
-              eq(subscription.status, 'active'),
-            ),
-          );
-
-        // 3. Atomically activate new subscription with exact validity period
-        await tx.insert(subscription).values({
-          id: newId(),
-          userId: local.userId,
-          plan,
-          status: 'active',
-          provider: 'jemenipay',
-          providerSubscriptionId: verified.externalReference ?? verified.paymentId,
-          currentPeriodStart,
-          currentPeriodEnd,
-          cancelAtPeriodEnd: false,
-          createdAt: now,
-          updatedAt: now,
-        });
+          });
+        }
       });
 
       this.logger.log(

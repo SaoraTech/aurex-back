@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { verify as verifySignature } from 'node:crypto';
+import { constants, verify as verifySignature } from 'node:crypto';
 import { fetchWithTimeout } from '../../common/http';
 
 export interface HuaweiVerifiedSubscription {
@@ -42,12 +42,7 @@ export class HuaweiIapProvider {
     if (!signedValue || typeof signature !== 'string') throw new Error('Huawei IAP notification signature fields are missing');
 
     const signedPayload = typeof signedValue === 'string' ? signedValue : JSON.stringify(signedValue);
-    const valid = verifySignature(
-      'RSA-SHA256',
-      Buffer.from(signedPayload, 'utf8'),
-      publicKey,
-      Buffer.from(signature, 'base64'),
-    );
+    const valid = this.verifySignedPayload(signedPayload, signature);
     if (!valid) throw new Error('Huawei IAP notification signature is invalid');
 
     return typeof signedValue === 'string' ? JSON.parse(signedValue) : signedValue;
@@ -79,12 +74,7 @@ export class HuaweiIapProvider {
     }
 
     const purchaseDataRaw = String(result.inAppPurchaseData);
-    const valid = verifySignature(
-      'RSA-SHA256',
-      Buffer.from(purchaseDataRaw, 'utf8'),
-      this.getPublicKey(),
-      Buffer.from(String(result.dataSignature), 'base64'),
-    );
+    const valid = this.verifySignedPayload(purchaseDataRaw, String(result.dataSignature));
     if (!valid) throw new Error('Huawei IAP purchase data signature is invalid');
 
     const purchase = JSON.parse(purchaseDataRaw) as Record<string, any>;
@@ -151,6 +141,15 @@ export class HuaweiIapProvider {
     this.accessToken = result.access_token;
     this.accessTokenExpiresAt = Date.now() + Number(result.expires_in ?? 3600) * 1000;
     return this.accessToken;
+  }
+
+  private verifySignedPayload(payload: string, signature: string): boolean {
+    const algorithm = this.config.get<string>('huaweiIapSignatureAlgorithm') ?? 'SHA256withRSA';
+    const key = this.getPublicKey();
+    const keyOptions = algorithm === 'SHA256withRSA/PSS'
+      ? { key, padding: constants.RSA_PKCS1_PSS_PADDING, saltLength: constants.RSA_PSS_SALTLEN_DIGEST }
+      : key;
+    return verifySignature('RSA-SHA256', Buffer.from(payload, 'utf8'), keyOptions, Buffer.from(signature, 'base64'));
   }
 
   private getPublicKey(): string {

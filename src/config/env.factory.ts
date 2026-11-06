@@ -25,6 +25,7 @@ export const envFactory=()=>{
   revenueCatPlusEntitlementId:env.REVENUECAT_PLUS_ENTITLEMENT_ID,revenueCatProEntitlementId:env.REVENUECAT_PRO_ENTITLEMENT_ID,
   huaweiIapClientId:env.HUAWEI_IAP_CLIENT_ID,huaweiIapClientSecret:env.HUAWEI_IAP_CLIENT_SECRET,
   huaweiIapApiBaseUrl:env.HUAWEI_IAP_API_BASE_URL,huaweiIapPublicKey:env.HUAWEI_IAP_PUBLIC_KEY,
+  huaweiIapSignatureAlgorithm:env.HUAWEI_IAP_SIGNATURE_ALGORITHM,
   huaweiIapPlusProductId:env.HUAWEI_IAP_PLUS_PRODUCT_ID,huaweiIapProProductId:env.HUAWEI_IAP_PRO_PRODUCT_ID,
   arcjetKey:env.ARCJET_KEY,arcjetMode:env.ARCJET_MODE,r2Enabled:env.R2_ENABLED,r2AccountId:env.R2_ACCOUNT_ID,
   r2Bucket:env.R2_BUCKET,r2AccessKeyId:env.R2_ACCESS_KEY_ID,r2SecretAccessKey:env.R2_SECRET_ACCESS_KEY,
