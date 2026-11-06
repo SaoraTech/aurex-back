@@ -46,7 +46,20 @@ export class BillingService {
 
       if (existing) {
         if (existing.status === 'failed' || existing.status === 'cancelled' || existing.status === 'refunded') {
-          // Allow a fresh attempt for a definitively failed/cancelled transaction by continuing.
+          // Rotate the terminal attempt away from the client key so a fresh local
+          // payment row can safely claim that same client idempotency key.
+          await this.db.update(payment).set({
+            idempotencyKey: `${idempotencyKey}:closed:${existing.id}`,
+            updatedAt: new Date(),
+          }).where(and(
+            eq(payment.id, existing.id),
+            eq(payment.idempotencyKey, idempotencyKey),
+            or(
+              eq(payment.status, 'failed'),
+              eq(payment.status, 'cancelled'),
+              eq(payment.status, 'refunded'),
+            ),
+          ));
         } else {
           this.logger.log(`Returning existing payment ${existing.id} for idempotency key ${idempotencyKey}`);
           return {
@@ -135,7 +148,7 @@ export class BillingService {
       const checkoutRes = providerName === 'dodo_payments'
         ? await this.dodo!.initiateCheckout({
             userId, email, plan, amount, currency: 'XOF', paymentMethod: 'card', returnUrl,
-            localPaymentId, idempotencyKey: finalIdempotencyKey,
+            localPaymentId, idempotencyKey: `${finalIdempotencyKey}:${localPaymentId}`,
           })
         : await this.jemenipay.initiateCheckout({
             userId, email, plan, amount, currency: 'XOF', paymentMethod, returnUrl,
@@ -198,9 +211,12 @@ export class BillingService {
       .select()
       .from(payment)
       .where(
-        or(
-          eq(payment.providerReference, targetRef),
-          eq(payment.id, targetRef),
+        and(
+          eq(payment.provider, 'jemenipay'),
+          or(
+            eq(payment.providerReference, targetRef),
+            eq(payment.id, targetRef),
+          ),
         ),
       )
       .limit(1);
