@@ -109,15 +109,34 @@ export class ChatService {
       }
     }
 
-    // 2. Atomic Quota Reservation: Reserve 1 message slot atomically
+    const generationId = input.requestId ?? correlationId;
+    const generationKey = generationId ? userId + ':' + generationId : undefined;
+    if (generationKey && this.activeGenerations.has(generationKey)) {
+      throw conflict('REQUEST_IN_PROGRESS', 'Cette génération est déjà en cours.');
+    }
+    const abortController = new AbortController();
+    const abortFromClient = () => abortController.abort();
+    if (streamOptions?.signal?.aborted) abortController.abort();
+    else streamOptions?.signal?.addEventListener('abort', abortFromClient, { once: true });
+    if (generationKey) this.activeGenerations.set(generationKey, abortController);
+    const releaseGeneration = () => {
+      if (generationKey && this.activeGenerations.get(generationKey) === abortController) {
+        this.activeGenerations.delete(generationKey);
+      }
+      streamOptions?.signal?.removeEventListener('abort', abortFromClient);
+    };
+
+    // 2. Atomic quota reservation.
     const opId = input.requestId ?? newId();
-    const quotaRes = await this.quotas.reserveQuota(
-      userId,
-      'daily_messages',
-      plan,
-      opId,
-    );
+    let quotaRes: any;
+    try {
+      quotaRes = await this.quotas.reserveQuota(userId, 'daily_messages', plan, opId);
+    } catch (error) {
+      releaseGeneration();
+      throw error;
+    }
     if (!quotaRes.allowed) {
+      releaseGeneration();
       throw new AppException(
         429,
         quotaRes.errorCode ?? 'DAILY_MESSAGE_LIMIT',
@@ -134,12 +153,17 @@ export class ChatService {
     }
 
     let userMessageId: string | undefined;
-    const previous = input.requestId
-      ? await this.findByRequest(convo.id, input.requestId, 'user')
-      : undefined;
+    let previous: any;
+    try {
+      previous = input.requestId ? await this.findByRequest(convo.id, input.requestId, 'user') : undefined;
+    } catch (error) {
+      await this.quotas.compensateQuota(opId);
+      releaseGeneration();
+      throw error;
+    }
 
     if (previous) {
-      userMessageId = previous.id; // Retry after failed generation: reuse user message
+      userMessageId = previous.id;
     } else {
       userMessageId = newId();
       try {
@@ -152,31 +176,18 @@ export class ChatService {
           createdAt: new Date(),
         });
       } catch (error) {
-        // Compensate reserved quota slot if user message insert fails
         await this.quotas.compensateQuota(opId);
+        releaseGeneration();
         if (isUniqueViolation(error)) {
-          throw conflict(
-            'REQUEST_IN_PROGRESS',
-            'Cette requête est déjà en cours de traitement.',
-          );
+          throw conflict('REQUEST_IN_PROGRESS', 'Cette requête est déjà en cours de traitement.');
         }
         throw error;
       }
     }
 
     let partialText = '';
-    const generationId = input.requestId ?? correlationId;
-    const generationKey = generationId ? userId + ':' + generationId : undefined;
-    let abortController: AbortController | undefined;
-    const abortFromClient = () => abortController?.abort();
     try {
-      if (generationKey && this.activeGenerations.has(generationKey)) {
-        throw conflict('REQUEST_IN_PROGRESS', 'Cette génération est déjà en cours.');
-      }
-      abortController = new AbortController();
-      if (streamOptions?.signal?.aborted) abortController.abort();
-      else streamOptions?.signal?.addEventListener('abort', abortFromClient, { once: true });
-      if (generationKey) this.activeGenerations.set(generationKey, abortController);
+      if (abortController.signal.aborted) throw conflict('GENERATION_CANCELLED', 'La génération a été annulée.');
       // 3. Load conversation history & pinned memories
       const rows = await this.db
         .select()
@@ -325,7 +336,7 @@ INSTRUCTION STRICTE : Le moteur SageMath n'a pas pu vérifier ce calcul exact ($
       // 7. Call Groq LLM
       const result = await this.ai.generate(plan, history, input.model, {
         systemInstruction,
-        signal: abortController!.signal,
+        signal: abortController.signal,
         ...(streamOptions?.onToken ? {
           onToken: (delta: string) => {
             partialText += delta;
@@ -433,10 +444,7 @@ INSTRUCTION STRICTE : Le moteur SageMath n'a pas pu vérifier ce calcul exact ($
       await this.quotas.compensateQuota(opId);
       throw err;
     } finally {
-      if (generationKey && abortController && this.activeGenerations.get(generationKey) === abortController) {
-        this.activeGenerations.delete(generationKey);
-      }
-      streamOptions?.signal?.removeEventListener('abort', abortFromClient);
+      releaseGeneration();
     }
   }
 }
