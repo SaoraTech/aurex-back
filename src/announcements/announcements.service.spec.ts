@@ -126,10 +126,16 @@ describe('AnnouncementsService', () => {
 
     const published = await service.publish(created.id, 'admin_1');
     expect(published.status).toBe('published');
-    expect(notificationsMock.triggerWorkflow).toHaveBeenCalledWith(expect.objectContaining({
-      topicKey: 'announcements:plus',
+    expect(notificationsMock.triggerWorkflow).toHaveBeenCalledTimes(2);
+    expect(notificationsMock.triggerWorkflow).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      topicKey: 'announcements:plus:push',
       workflowId: 'aurex-announcement',
-      payload: expect.objectContaining({ targetAudience: 'plus', channels: ['push', 'email'] }),
+      payload: expect.objectContaining({ targetAudience: 'plus', channel: 'push', channels: ['push'] }),
+    }));
+    expect(notificationsMock.triggerWorkflow).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      topicKey: 'announcements:plus:email',
+      workflowId: 'aurex-announcement',
+      payload: expect.objectContaining({ targetAudience: 'plus', channel: 'email', channels: ['email'] }),
     }));
     expect(dbMock.insert).toHaveBeenCalled();
   });
