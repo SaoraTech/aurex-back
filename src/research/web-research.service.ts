@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { z } from 'zod';
 import { AiOrchestratorService } from '../ai/ai-orchestrator.service';
@@ -8,7 +8,6 @@ import { IdentityService } from '../identity/identity.service';
 import { UsageService, startOfUtcDay } from '../observability/usage.service';
 import { PlanName, PlansService } from '../plans/plans.service';
 import { QuotasService } from '../quotas/quotas.service';
-import { Optional } from '@nestjs/common';
 import { renderWebBlock, normalizeUrl, shouldSearchWeb, stripUnknownCitations, WEB_TAG } from './prompt-safety';
 import { BraveSearchService } from './brave-search.service';
 import { WebBundle, WebSearchSummary, WebSource } from './research.types';
@@ -77,7 +76,7 @@ export class WebResearchService {
       answer: text, provider: generated.provider, model: generated.model, 
       sources: bundle.sources.map(({ snippet, ...s }) => ({ ...s, cited: cited.includes(s.id) })),
       queries: bundle.queries, coverage: bundle.coverage,
-      notes: bundle.coverage.queriesFailed || bundle.coverage.extractionsFailed || bundle.coverage.truncated ? 'Couverture partielle : certaines recherches ou extractions ont échoué ou ont été limitées.' : undefined,
+      notes: bundle.coverage.queriesFailed || bundle.coverage.truncated ? 'Couverture partielle : certaines recherches ont échoué ou ont été limitées.' : undefined,
     };
   }
 
