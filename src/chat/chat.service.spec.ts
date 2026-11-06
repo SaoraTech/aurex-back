@@ -259,4 +259,22 @@ describe('ChatService - Groq & SageMath Orchestration, Atomic Quotas & Idempoten
     expect(mockQuotas.compensateQuota).toHaveBeenCalledWith(expect.any(String));
   });
 
+  it('uses a fresh quota operation for a retry with the same client request id', async () => {
+    mockAi.generate.mockRejectedValueOnce(new Error('Temporary Groq failure'));
+    await expect(svc.send('u1', { content: 'Réessaie cette réponse', requestId: 'req_retry_same' })).rejects.toThrow('Temporary Groq failure');
+
+    mockAi.generate.mockResolvedValueOnce({
+      text: 'Réponse rétablie',
+      provider: 'groq',
+      model: 'openai/gpt-oss-120b',
+      tokens: 12,
+      latencyMs: 80,
+    });
+    const result = await svc.send('u1', { content: 'Réessaie cette réponse', requestId: 'req_retry_same' });
+
+    expect(result.message.content).toBe('Réponse rétablie');
+    expect(mockQuotas.reserveQuota).toHaveBeenCalledTimes(2);
+    expect(mockQuotas.reserveQuota.mock.calls[0][3]).not.toBe(mockQuotas.reserveQuota.mock.calls[1][3]);
+  });
+
 });
