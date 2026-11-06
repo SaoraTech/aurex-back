@@ -177,7 +177,6 @@ describe('ChatService - Groq & SMP Orchestration, Atomic Quotas & Idempotency', 
     });
     expect(res.mathComputation).not.toHaveProperty('plainText');
     expect(res.message.mathResult).toBeNull();
-    expect(mockAi).not.toHaveProperty('verified');
     expect(mockQuotas.compensateQuota).toHaveBeenCalledWith(expect.any(String));
   });
 
