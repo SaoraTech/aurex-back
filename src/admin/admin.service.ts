@@ -201,7 +201,7 @@ export class AdminService {
       'revenueCatPlusEntitlementId', 'revenueCatProEntitlementId',
     ]);
     const huaweiConfigured = configured([
-      'huaweiIapClientId', 'huaweiIapClientSecret', 'huaweiIapApiBaseUrl',
+      'huaweiIapClientId', 'huaweiIapClientSecret', 'huaweiIapPayloadSecret', 'huaweiIapApiBaseUrl',
       'huaweiIapPublicKey', 'huaweiIapPlusProductId', 'huaweiIapProProductId',
     ]);
 
