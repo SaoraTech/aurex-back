@@ -7,6 +7,7 @@ export interface HuaweiVerifiedSubscription {
   userId: string;
   plan: 'plus' | 'pro';
   subscriptionId: string;
+  purchaseToken: string;
   productId: string;
   orderId: string;
   purchaseTime: Date;
@@ -82,7 +83,7 @@ export class HuaweiIapProvider {
     const plusProductId = this.config.get<string>('huaweiIapPlusProductId');
     const proProductId = this.config.get<string>('huaweiIapProProductId');
     const plan = productId === plusProductId ? 'plus' : productId === proProductId ? 'pro' : null;
-    const expirationDate = new Date(Number(purchase.expirationDate));
+    const expirationDate = new Date(Number(purchase.expirationDate ?? purchase.expirationDateMillis));
     const purchaseTimeCandidate = new Date(Number(purchase.purchaseTime ?? purchase.purchaseTimeMillis));
     const purchaseTime = Number.isFinite(purchaseTimeCandidate.getTime()) ? purchaseTimeCandidate : new Date();
     const payload = String(purchase.developerPayload ?? '');
@@ -95,8 +96,9 @@ export class HuaweiIapProvider {
     }
 
     if (
-      purchase.kind !== 2 ||
+      Number(purchase.kind) !== 2 ||
       String(purchase.subscriptionId) !== subscriptionId ||
+      String(purchase.purchaseToken ?? '') !== purchaseToken ||
       !plan ||
       !userId ||
       !Number.isFinite(expirationDate.getTime())
@@ -108,12 +110,15 @@ export class HuaweiIapProvider {
       userId,
       plan,
       subscriptionId,
+      purchaseToken,
       productId,
       orderId: String(purchase.lastOrderId ?? purchase.orderId),
       purchaseTime,
       expirationDate,
-      isAutoRenewing: Boolean(purchase.autoRenewing),
-      isActive: (purchase.subIsvalid ?? purchase.subIsValid) === true && Number(purchase.purchaseState) === 0 && expirationDate > new Date(),
+      isAutoRenewing: purchase.autoRenewing === true || purchase.autoRenewing === 'true',
+      isActive: (purchase.subIsvalid ?? purchase.subIsValid) === true || (purchase.subIsvalid ?? purchase.subIsValid) === 'true'
+        ? Number(purchase.purchaseState) === 0 && expirationDate > new Date()
+        : false,
     };
   }
 
