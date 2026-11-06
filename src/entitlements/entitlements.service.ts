@@ -146,7 +146,8 @@ export class EntitlementsService {
       lte(subscription.currentPeriodEnd, now),
     )).returning({ userId: subscription.userId });
 
-    const userIds = [...new Set(updated.map((row: { userId: string }) => row.userId))];
+    const updatedUserIds: string[] = (updated as Array<{ userId: string }>).map(row => row.userId);
+    const userIds: string[] = [...new Set<string>(updatedUserIds)];
     for (const userId of userIds) {
       await this.syncNotificationMembership(userId);
     }
