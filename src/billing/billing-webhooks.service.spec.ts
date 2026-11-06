@@ -112,4 +112,21 @@ describe('BillingWebhooksService', () => {
     expect(entitlements.activateSubscription).not.toHaveBeenCalled();
   });
 
+  it('fails closed when a RevenueCat entitlement supplies an invalid expiry date', async () => {
+    const { service, entitlements } = createService({
+      original_app_user_id: 'user_1',
+      entitlements: {
+        aurex_plus: {
+          purchase_date: '2026-11-01T00:00:00.000Z',
+          expires_date: 'not-a-date',
+        },
+      },
+    });
+
+    await (service as any).applyRevenueCatEvent({ appUserId: 'user_1', type: 'INITIAL_PURCHASE' });
+
+    expect(entitlements.expireProviderSubscriptions).toHaveBeenCalledWith('user_1', 'revenuecat');
+    expect(entitlements.activateSubscription).not.toHaveBeenCalled();
+  });
+
 });
