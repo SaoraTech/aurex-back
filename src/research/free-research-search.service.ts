@@ -22,12 +22,12 @@ export class FreeResearchSearchService {
     const query = input.query.trim().slice(0, 300);
     if (query.length < 2) throw new ProviderError('free_research', 'invalid_request', 'query too short');
     const max = Math.min(Math.max(input.maxResults ?? 5, 1), 10);
-    const key = query.toLocaleLowerCase() + ':' + max + ':' + (input.topic ?? 'general');
+    const key = query.toLocaleLowerCase() + ':' + max + ':' + (input.topic ?? 'general') + ':' + (input.timeRange ?? 'any');
     const cached = this.cache.get(key);
     if (cached && cached.expiresAt > Date.now()) return { hits: cached.hits, cached: true };
-    const results = await Promise.allSettled([
-      this.duckDuckGo(query, max), this.wikipedia(query, max), this.crossref(query, Math.min(max, 4)),
-    ]);
+    const tasks: Promise<BraveHit[]>[] = [this.duckDuckGo(query, max, input)];
+    if (input.topic !== 'news') tasks.push(this.wikipedia(query, max), this.crossref(query, Math.min(max, 4)));
+    const results = await Promise.allSettled(tasks);
     const merged = new Map<string, BraveHit>();
     for (const result of results) {
       if (result.status !== 'fulfilled') continue;
@@ -43,8 +43,10 @@ export class FreeResearchSearchService {
     return { hits, cached: false };
   }
 
-  private async duckDuckGo(query: string, max: number): Promise<BraveHit[]> {
-    const response = await fetchWithTimeout('free_research', 'https://html.duckduckgo.com/html/?q=' + encodeURIComponent(query), {
+  private async duckDuckGo(query: string, max: number, options: BraveSearchParams): Promise<BraveHit[]> {
+    const freshness: Record<string, string> = { day: 'd', week: 'w', month: 'm', year: 'y' };
+    const params = new URLSearchParams({ q: query, ...(options.topic === 'news' ? { ia: 'news', iar: 'news' } : {}), ...(options.timeRange ? { df: freshness[options.timeRange] } : {}) });
+    const response = await fetchWithTimeout('free_research', 'https://html.duckduckgo.com/html/?' + params, {
       headers: { Accept: 'text/html', 'User-Agent': 'Mozilla/5.0 (compatible; AurexResearch/1.0)' },
     }, 12000);
     if (!response.ok) throw new ProviderError('free_research', 'unavailable', 'DuckDuckGo returned HTTP ' + response.status);
