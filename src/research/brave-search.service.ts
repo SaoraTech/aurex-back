@@ -72,7 +72,7 @@ export class BraveSearchService {
     });
 
     const ttl = this.config.get<number>('braveSearchCacheTtlSeconds') ?? 600;
-    this.cache.set(cacheKey, hits, freshness ? Math.min(ttl, 120000) : ttl * 1000);
+    this.cache.set(cacheKey, hits, freshness ? Math.min(ttl * 1000, 120000) : ttl * 1000);
     this.metrics.inc('aurex_brave_search_cache_total', { result: 'miss' });
     return { hits, cached: false };
   }
