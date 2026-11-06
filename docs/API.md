@@ -14,6 +14,7 @@ Base path: /api/v1. Better Auth routes are mounted under /api/auth/*.
 | GET | /admin/billing/subscriptions | Admin subscription list | Admin |
 | GET | /admin/settings | Safe integration configuration status (no secrets) | Admin |
 | GET | /admin/notifications/deliveries | Notification dispatch history and status | Admin |
+| GET | /admin/notifications/summary | Notification dispatch counts by category, channel and status | Admin |
 | GET | /notifications/preferences | Current editorial and transactional channel preferences | Yes |
 | PATCH | /notifications/preferences | Update editorial and transactional channel preferences | Yes |
 | GET/POST | /conversations | List/create conversations | Yes |

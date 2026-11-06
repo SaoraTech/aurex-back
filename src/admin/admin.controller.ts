@@ -59,6 +59,12 @@ export class AdminController {
     return this.admin.listNotificationDeliveries(status, category, limit, offset);
   }
 
+  @Get('notifications/summary')
+  @Protect('read')
+  notificationSummary() {
+    return this.admin.notificationSummary();
+  }
+
   @Get('settings')
   @Protect('read')
   settings() {

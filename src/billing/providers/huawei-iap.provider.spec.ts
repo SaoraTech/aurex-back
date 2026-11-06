@@ -2,6 +2,7 @@ import { generateKeyPairSync, sign } from 'node:crypto';
 import { HuaweiIapProvider } from './huawei-iap.provider';
 
 describe('HuaweiIapProvider', () => {
+  afterEach(() => jest.restoreAllMocks());
   const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
   const publicPem = publicKey.export({ type: 'spki', format: 'pem' }).toString();
 

@@ -124,24 +124,51 @@ export class AdminService {
     return { items, limit, offset };
   }
 
-  getSettingsStatus() {
-    const jemenipayConfigured = Boolean(
-      this.config.get<string>('jemenipayApiKey') &&
-      this.config.get<string>('jemenipaySecretKey'),
+  async notificationSummary() {
+    const rows = await this.db.select({
+      category: notificationDelivery.category,
+      channel: notificationDelivery.channel,
+      status: notificationDelivery.status,
+      count: sql<number>`count(*)`,
+    }).from(notificationDelivery).groupBy(
+      notificationDelivery.category,
+      notificationDelivery.channel,
+      notificationDelivery.status,
     );
-    const novuConfigured = Boolean(this.config.get<string>('novuApiKey'));
+    return { items: rows };
+  }
+
+  getSettingsStatus() {
+    const configured = (keys: string[]) => keys.every(key => Boolean(this.config.get<string>(key)));
+    const jemenipayConfigured = configured(['jemenipayApiKey', 'jemenipaySecretKey']);
+    const novuConfigured = configured(['novuApiKey', 'novuAppIdentifier']);
+    const dodoConfigured = configured([
+      'dodoPaymentsApiKey', 'dodoPaymentsWebhookKey', 'dodoProductPlus',
+      'dodoProductPro', 'dodoPaymentsReturnUrl',
+    ]);
+    const revenueCatConfigured = configured([
+      'revenueCatApiKey', 'revenueCatWebhookAuthorization',
+      'revenueCatPlusEntitlementId', 'revenueCatProEntitlementId',
+    ]);
+    const huaweiConfigured = configured([
+      'huaweiIapClientId', 'huaweiIapClientSecret', 'huaweiIapApiBaseUrl',
+      'huaweiIapPublicKey', 'huaweiIapPlusProductId', 'huaweiIapProProductId',
+    ]);
 
     return {
       providers: {
-        jemenipay: { status: jemenipayConfigured ? 'configured' : 'missing_credentials' },
-        revenueCat: { status: 'pending_integration' },
-        dodoPayments: { status: 'pending_integration' },
-        huaweiIap: { status: 'pending_integration' },
+        jemenipay: { status: jemenipayConfigured ? 'credentials_configured' : 'missing_configuration' },
+        dodoPayments: {
+          status: dodoConfigured ? 'credentials_configured' : 'missing_configuration',
+          environment: this.config.get<string>('dodoPaymentsEnvironment') ?? 'test_mode',
+        },
+        revenueCat: { status: revenueCatConfigured ? 'credentials_configured' : 'missing_configuration' },
+        huaweiIap: { status: huaweiConfigured ? 'credentials_configured' : 'missing_configuration' },
       },
       notifications: {
-        novu: { status: novuConfigured ? 'configured' : 'missing_credentials' },
+        novu: { status: novuConfigured ? 'credentials_configured' : 'missing_configuration' },
       },
-      note: 'Configuration status only. Credentials are never returned by this endpoint.',
+      note: 'Credential presence only; this endpoint does not claim that external accounts, webhooks or live transactions have been verified. Secrets are never returned.',
     };
   }
 }
