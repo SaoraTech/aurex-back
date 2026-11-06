@@ -37,7 +37,7 @@ export const EnvSchema = z.object({
   BRAVE_SEARCH_TIMEOUT_MS: z.coerce.number().int().positive().default(30000),
   BRAVE_SEARCH_MAX_TOKENS: z.coerce.number().int().min(1024).max(32768).default(8192),
   BRAVE_SEARCH_LANGUAGE: z.string().min(2).default('fr'),
-  BRAVE_SEARCH_COUNTRY: z.string().regex(/^[A-Z]{2}$/).optional(),
+  BRAVE_SEARCH_COUNTRY: z.preprocess((value) => value === '' ? undefined : value, z.string().regex(/^[A-Z]{2}$/).optional()),
   RESEARCH_MAX_SEARCHES: z.coerce.number().int().min(1).max(10).default(5),
   RESEARCH_DEADLINE_MS: z.coerce.number().int().positive().default(60000),
   PLAN_LIMITS_JSON: z.string().default(DEFAULT_LIMITS),
