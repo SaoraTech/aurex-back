@@ -10,7 +10,6 @@ Base path: /api/v1. Better Auth routes are mounted under /api/auth/*.
 | GET/POST | /conversations | List/create conversations | Yes |
 | GET | /conversations/:id/messages | List messages owned by user | Yes |
 | DELETE | /conversations/:id | Delete owned conversation | Yes |
-| POST | /math/compute | Mathematical computation | Yes |
 | GET/POST | /memory | List/create memory | Yes |
 | PATCH/DELETE | /memory/:id | Update/delete memory | Yes |
 | GET/POST | /artifacts | List/create artifacts | Yes |
