@@ -20,7 +20,7 @@ export class UsageService{
   catch(error){this.logger.error({msg:'usage_record_failed',kind:input.kind,error:(error as Error).message});}
  }
  async sumSince(userId:string,kind:UsageKind,since:Date):Promise<number>{
-  const rows=await this.db.select({total:sql<number>\`coalesce(sum(\${providerUsage.units}), 0)\`}).from(providerUsage)
+  const rows=await this.db.select({total:sql<number>`coalesce(sum(${providerUsage.units}), 0)`}).from(providerUsage)
    .where(and(eq(providerUsage.userId,userId),eq(providerUsage.kind,kind),gte(providerUsage.createdAt,since)));
   return Number(rows[0]?.total??0);
  }
@@ -32,15 +32,15 @@ export class UsageService{
   return{costUsd:Math.round(input.units/1000*rate*1_000_000)/1_000_000,isEstimated:true,isUnknown:false,currency:'USD'};
  }
  async getUserUsageSummary(userId:string,since=startOfUtcMonth()):Promise<UsageSummaryItem[]>{
-  const rows=await this.db.select({kind:providerUsage.kind,provider:providerUsage.provider,totalUnits:sql<number>\`coalesce(sum(\${providerUsage.units}), 0)\`,
-   callCount:sql<number>\`count(*)\`,avgLatencyMs:sql<number>\`round(avg(\${providerUsage.latencyMs}))\`}).from(providerUsage)
+  const rows=await this.db.select({kind:providerUsage.kind,provider:providerUsage.provider,totalUnits:sql<number>`coalesce(sum(${providerUsage.units}), 0)`,
+   callCount:sql<number>`count(*)`,avgLatencyMs:sql<number>`round(avg(${providerUsage.latencyMs}))`}).from(providerUsage)
    .where(and(eq(providerUsage.userId,userId),gte(providerUsage.createdAt,since))).groupBy(providerUsage.kind,providerUsage.provider);
   return rows.map((r:any)=>{const units=Number(r.totalUnits??0),cost=this.estimateCost({kind:r.kind,units,provider:r.provider});
    return{kind:r.kind as UsageKind,provider:r.provider,totalUnits:units,callCount:Number(r.callCount??0),
     avgLatencyMs:r.avgLatencyMs!==null?Number(r.avgLatencyMs):null,estimatedCostUsd:cost.costUsd};});
  }
  async detectAbnormalConsumption(userId:string,thresholdUnits=50000,since=startOfUtcDay()){
-  const rows=await this.db.select({totalUnits:sql<number>\`coalesce(sum(\${providerUsage.units}), 0)\`}).from(providerUsage)
+  const rows=await this.db.select({totalUnits:sql<number>`coalesce(sum(${providerUsage.units}), 0)`}).from(providerUsage)
    .where(and(eq(providerUsage.userId,userId),gte(providerUsage.createdAt,since)));
   const consumed=Number(rows[0]?.totalUnits??0);return{userId,consumedUnits:consumed,thresholdUnits,isAbnormal:consumed>=thresholdUnits,evaluatedSince:since.toISOString()};
  }
