@@ -151,8 +151,11 @@ export class AnnouncementsService {
     const channels = (published.notificationChannels ?? []) as NotificationChannel[];
     if (channels.length === 0) return;
 
+    const topicKey = published.targetAudience === 'all'
+      ? 'announcements:all'
+      : `announcements:${published.targetAudience}`;
     const result = await this.notifications.triggerWorkflow({
-      topicKey: 'announcements:all',
+      topicKey,
       workflowId: 'aurex-announcement',
       transactionId: `aurex-announcement-${published.id}`,
       payload: {
