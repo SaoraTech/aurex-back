@@ -213,30 +213,36 @@ export class NotificationsService {
       };
 
       // Topic membership enforces audience and channel preferences server-side.
-      for (const topic of allTopics.filter(item => activeTopics.has(item.topicKey))) {
-        const topicResponse = await syncTopic(topic.topicKey, topic.name);
-        if (!topicResponse.ok && topicResponse.status !== 409) {
-          this.logger.warn({ msg: 'novu_topic_subscription_rejected', status: topicResponse.status, topicKey: topic.topicKey });
-          return { sent: false, reason: `topic_http_${topicResponse.status}` };
-        }
+      const activeResponses = await Promise.all(
+        allTopics.filter(item => activeTopics.has(item.topicKey))
+          .map(async topic => ({ topic, response: await syncTopic(topic.topicKey, topic.name) })),
+      );
+      const failedActive = activeResponses.find(({ response }) => !response.ok && response.status !== 409);
+      if (failedActive) {
+        this.logger.warn({ msg: 'novu_topic_subscription_rejected', status: failedActive.response.status, topicKey: failedActive.topic.topicKey });
+        return { sent: false, reason: `topic_http_${failedActive.response.status}` };
       }
 
-      for (const topic of allTopics.filter(item => !activeTopics.has(item.topicKey))) {
-        const staleUrl = `${baseUrl}/v2/topics/${encodeURIComponent(topic.topicKey)}/subscriptions`;
-        const staleResponse = await fetchWithTimeout(
-          'novu',
-          staleUrl,
-          {
-            method: 'DELETE',
-            headers,
-            body: JSON.stringify({ subscriptions: [{ identifier, subscriberId: input.subscriberId }] }),
-          },
-          5000,
-        );
-        if (!staleResponse.ok && staleResponse.status !== 404) {
-          this.logger.warn({ msg: 'novu_stale_topic_unsubscribe_rejected', status: staleResponse.status, topicKey: topic.topicKey });
-          return { sent: false, reason: `topic_unsubscribe_http_${staleResponse.status}` };
-        }
+      const staleResponses = await Promise.all(
+        allTopics.filter(item => !activeTopics.has(item.topicKey)).map(async topic => {
+          const staleUrl = `${baseUrl}/v2/topics/${encodeURIComponent(topic.topicKey)}/subscriptions`;
+          const response = await fetchWithTimeout(
+            'novu',
+            staleUrl,
+            {
+              method: 'DELETE',
+              headers,
+              body: JSON.stringify({ subscriptions: [{ identifier, subscriberId: input.subscriberId }] }),
+            },
+            5000,
+          );
+          return { topic, response };
+        }),
+      );
+      const failedStale = staleResponses.find(({ response }) => !response.ok && response.status !== 404);
+      if (failedStale) {
+        this.logger.warn({ msg: 'novu_stale_topic_unsubscribe_rejected', status: failedStale.response.status, topicKey: failedStale.topic.topicKey });
+        return { sent: false, reason: `topic_unsubscribe_http_${failedStale.response.status}` };
       }
 
       return { sent: true };
