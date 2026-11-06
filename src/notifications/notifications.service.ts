@@ -184,7 +184,7 @@ export class NotificationsService {
           topicUrl,
           {
             method: 'POST',
-            headers: { ...headers, 'Idempotency-Key': `${topicKey}:${identifier}` },
+            headers,
             body: JSON.stringify(topicBody),
           },
           5000,
@@ -219,7 +219,7 @@ export class NotificationsService {
           staleUrl,
           {
             method: 'DELETE',
-            headers: { ...headers, 'Idempotency-Key': `${staleTopicKey}:remove:${identifier}` },
+            headers,
             body: JSON.stringify({ subscriptions: [{ identifier, subscriberId: input.subscriberId }] }),
           },
           5000,
