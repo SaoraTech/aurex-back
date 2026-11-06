@@ -143,6 +143,7 @@ export class EntitlementsService {
     }).where(and(
       inArray(subscription.id, due.map((row: { id: string }) => row.id)),
       eq(subscription.status, 'active'),
+      lte(subscription.currentPeriodEnd, now),
     )).returning({ userId: subscription.userId });
 
     const userIds = [...new Set(updated.map((row: { userId: string }) => row.userId))];
