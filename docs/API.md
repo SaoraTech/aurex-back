@@ -98,7 +98,7 @@ Announcements with `publicationMode: "SCHEDULED"` are persisted with a due time 
 - Command: `npm run jobs:publish-announcements`
 - Schedule: every minute (`* * * * *`)
 
-The backend web service does not run an in-process timer. Until this external Cron Job is configured and enabled, scheduled records remain queued and are not automatically published. The same job also retries failed or interrupted editorial notification outbox records. Publication claims are conditional and notification retries use stable delivery IDs and a deterministic Novu transaction ID.
+The backend web service does not run an in-process timer. Until this external Cron Job is configured and enabled, scheduled records remain queued and are not automatically published. The same job also expires elapsed subscriptions, refreshes affected Novu audience memberships, and retries failed or interrupted editorial notification outbox records. Publication claims are conditional and notification retries use stable delivery IDs and a deterministic Novu transaction ID.
 
 ## Novu editorial workflow configuration
 
