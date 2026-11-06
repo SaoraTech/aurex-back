@@ -13,6 +13,7 @@ import { IsIn, IsOptional, IsString } from 'class-validator';
 import type { Request } from 'express';
 import { RequireUserGuard } from '../auth/require-user.guard';
 import { CurrentUserId } from '../common/user.decorator';
+import { serviceUnavailable } from '../common/errors';
 import { BillingService } from './billing.service';
 import { BillingWebhooksService } from './billing-webhooks.service';
 import { HuaweiIapProvider } from './providers/huawei-iap.provider';
@@ -66,6 +67,9 @@ export class BillingController {
   @UseGuards(RequireUserGuard)
   @Post('huawei-iap/developer-payload')
   createHuaweiDeveloperPayload(@CurrentUserId() userId: string) {
+    if (!this.huawei.isConfigured()) {
+      throw serviceUnavailable('HUAWEI_IAP_NOT_CONFIGURED', 'La vérification Huawei IAP n’est pas entièrement configurée.');
+    }
     return { developerPayload: this.huawei.createDeveloperPayload(userId) };
   }
 
