@@ -42,6 +42,22 @@ AudioService
 
 The Azure adapter uses Node.js 22 native fetch, FormData and Blob; no Azure SDK is bundled. Azure resource keys are read only by the backend. The speech service performs no automatic provider fallback and does not persist uploaded audio.
 
+## Web research module
+
+~~~text
+ResearchController
+  |-- WebResearchService
+        |-- QuotasService / UsageService
+        |-- Groq query planner (deep research only)
+        |-- BraveSearchService
+              |-- LLM Context REST API
+              |-- URL/title/extracted snippets
+        |-- Groq evidence-based synthesis
+              |-- source IDs and citation validation
+~~~
+
+Brave returns query-relevant page passages with source metadata in one request. Aurex does not separately scrape or extract result URLs. Search results are untrusted input, isolated in a data fence before synthesis. No provider fallback is configured.
+
 ## Request path
 
 Express request context and request ID → security middleware / body limits → Nest global guards → validation pipe → controller → domain service → provider adapter → typed provider error mapping → response.

@@ -4,13 +4,13 @@ import { ObservabilityModule } from '../observability/observability.module';
 import { PlansModule } from '../plans/plans.module';
 import { QuotasModule } from '../quotas/quotas.module';
 import { ResearchController } from './research.controller';
-import { TavilyService } from './tavily.service';
+import { BraveSearchService } from './brave-search.service';
 import { WebResearchService } from './web-research.service';
 
 @Module({
   imports: [AiModule, PlansModule, QuotasModule, ObservabilityModule],
   controllers: [ResearchController],
-  providers: [TavilyService, WebResearchService],
+  providers: [BraveSearchService, WebResearchService],
   exports: [WebResearchService],
 })
 export class ResearchModule {}

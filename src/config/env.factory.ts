@@ -18,8 +18,10 @@ export const envFactory=()=>{
   jemenipayWebhookSecret:env.JEMENIPAY_WEBHOOK_SECRET,jemenipayEnv:env.JEMENIPAY_ENV,
   arcjetKey:env.ARCJET_KEY,arcjetMode:env.ARCJET_MODE,r2Enabled:env.R2_ENABLED,r2AccountId:env.R2_ACCOUNT_ID,
   r2Bucket:env.R2_BUCKET,r2AccessKeyId:env.R2_ACCESS_KEY_ID,r2SecretAccessKey:env.R2_SECRET_ACCESS_KEY,
-  tavilyEnabled:env.TAVILY_ENABLED,tavilyApiKey:env.TAVILY_API_KEY,researchMaxSearches:env.RESEARCH_MAX_SEARCHES,
-  researchMaxExtracts:env.RESEARCH_MAX_EXTRACTS,researchDeadlineMs:env.RESEARCH_DEADLINE_MS,
+  braveSearchEnabled:env.BRAVE_SEARCH_ENABLED,braveSearchApiKey:env.BRAVE_SEARCH_API_KEY,
+  braveSearchTimeoutMs:env.BRAVE_SEARCH_TIMEOUT_MS,braveSearchMaxTokens:env.BRAVE_SEARCH_MAX_TOKENS,
+  braveSearchLanguage:env.BRAVE_SEARCH_LANGUAGE,braveSearchCountry:env.BRAVE_SEARCH_COUNTRY,
+  researchMaxSearches:env.RESEARCH_MAX_SEARCHES,researchDeadlineMs:env.RESEARCH_DEADLINE_MS,
  };
 };
 export default envFactory;
