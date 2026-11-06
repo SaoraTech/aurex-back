@@ -89,3 +89,7 @@ Announcements with `publicationMode: "SCHEDULED"` are persisted with a due time 
 - Schedule: every minute (`* * * * *`)
 
 The backend web service does not run an in-process timer. Until this external Cron Job is configured and enabled, scheduled records remain queued and are not automatically published. The job is idempotent and can safely be retried.
+
+## Novu editorial workflow configuration
+
+Novu subscribers are synchronized when the authenticated client requests its subscriber token or updates notification preferences. Each subscriber is assigned to the `announcements:all` topic and receives a server-managed `subscriber.data.plan` value (`free`, `plus`, or `pro`). The topic subscription filters the existing `aurex-announcement` workflow by `payload.targetAudience`. The workflow must honor `payload.channels` and the subscriber's `editorialEmailEnabled` / `editorialPushEnabled` data before sending each external channel. Workflow publication and email/push integrations remain Novu workspace configuration tasks; backend code does not fabricate those settings.

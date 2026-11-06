@@ -166,7 +166,7 @@ export class AnnouncementsController {
       const user = await this.users.resolve(req);
       if (user?.id) {
         userId = user.id;
-        plan = await this.plans.getEffectivePlan(user.id);
+        plan = (await this.plans.getSubscriptionInfo(user.id)).commercialTier;
       }
     } catch {
       // Unauthenticated callers receive public/free announcements.
