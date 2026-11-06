@@ -7,6 +7,7 @@ export interface TriggerWorkflowInput {
   subscriberId?: string;
   topicKey?: string;
   workflowId: string;
+  transactionId?: string;
   email?: string;
   firstName?: string;
   payload?: Record<string, unknown>;
@@ -78,6 +79,7 @@ export class NotificationsService {
         workflowId: input.workflowId,
         to: recipient,
         payload: input.payload ?? {},
+        ...(input.transactionId ? { transactionId: input.transactionId } : {}),
       };
 
       const res = await fetchWithTimeout(
