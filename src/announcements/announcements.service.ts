@@ -1,10 +1,11 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { and, desc, eq, inArray, isNull, lte, sql } from 'drizzle-orm';
 import { DRIZZLE } from '../db/db.constants';
 import { announcement, announcementRead, notificationDelivery } from '../db/schema';
 import { newId } from '../common/ids';
 import { badRequest, conflict, notFound } from '../common/errors';
 import { NotificationsService } from '../notifications/notifications.service';
+import { AuditService } from '../audit/audit.service';
 import { CreateAnnouncementDto, NotificationChannel, ScheduledDeliveryMode, UpdateAnnouncementDto } from './announcement.types';
 
 @Injectable()
@@ -13,6 +14,7 @@ export class AnnouncementsService {
   constructor(
     @Inject(DRIZZLE) private readonly db: any,
     private readonly notifications: NotificationsService,
+    @Optional() private readonly audit?: AuditService,
   ) {}
 
   async create(dto: CreateAnnouncementDto, creatorId?: string, _isAdmin = false) {
@@ -55,10 +57,11 @@ export class AnnouncementsService {
       updatedAt: now,
     }).returning();
 
+    await this.audit?.record({ actorUserId: creatorId, action: 'announcement.create', targetType: 'announcement', targetId: created.id, metadata: { publicationMode: mode, targetAudience: created.targetAudience } });
     return created;
   }
 
-  async update(id: string, dto: UpdateAnnouncementDto) {
+  async update(id: string, dto: UpdateAnnouncementDto, actorUserId?: string) {
     const existing = await this.getById(id);
     if (!existing) throw notFound('ANNOUNCEMENT_NOT_FOUND', 'Annonce introuvable.');
     if (existing.status === 'published' || existing.status === 'archived') {
@@ -104,6 +107,9 @@ export class AnnouncementsService {
       updatedAt: new Date(),
     }).where(eq(announcement.id, id)).returning();
 
+    if (updated) {
+      await this.audit?.record({ actorUserId, action: 'announcement.update', targetType: 'announcement', targetId: id, metadata: { publicationMode: mode, targetAudience: updated.targetAudience } });
+    }
     return updated;
   }
 
@@ -127,6 +133,8 @@ export class AnnouncementsService {
     )).returning();
 
     if (!published) return this.getById(id);
+
+    await this.audit?.record({ actorUserId: publishedBy, action: 'announcement.publish', targetType: 'announcement', targetId: id, metadata: { targetAudience: published.targetAudience, publicationMode: published.publicationMode } });
 
     const deliveryMode = published.publicationMode === 'SCHEDULED'
       ? published.scheduledDeliveryMode
