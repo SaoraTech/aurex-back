@@ -25,7 +25,7 @@ export const EnvSchema = z.object({
   AZURE_SPEECH_MAX_TEXT_CHARS: z.coerce.number().int().positive().default(5000),
   AZURE_SPEECH_TTS_VOICE_FR: z.string().default('fr-FR-DeniseNeural'),
   AZURE_SPEECH_TTS_VOICE_EN: z.string().default('en-US-JennyNeural'),
-  AZURE_SPEECH_TTS_OUTPUT_FORMAT: z.string().default('audio-16khz-128kbitrate-mono-mp3'),
+  AZURE_SPEECH_TTS_OUTPUT_FORMAT: z.string().regex(/^audio-(8|16|24|48)khz-[0-9]+kbitrate-mono-mp3$/).default('audio-16khz-128kbitrate-mono-mp3'),
   AUDIO_MAX_UPLOAD_BYTES: z.coerce.number().int().positive().default(20971520),
   AUDIO_DEFAULT_LANGUAGE: z.enum(['fr','en']).default('fr'),
   JEMENIPAY_API_KEY: optStr, JEMENIPAY_SECRET_KEY: optStr, JEMENIPAY_WEBHOOK_SECRET: optStr,
