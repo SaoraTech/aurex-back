@@ -12,7 +12,7 @@ describe('validateEnv',()=>{
  });
  it('requires R2 credentials when enabled',()=>{withEnv({R2_ENABLED:'true',R2_BUCKET:'b'});expect(()=>validateEnv()).toThrow();});
  it('requires Brave Search key when enabled',()=>{withEnv({BRAVE_SEARCH_ENABLED:'true'});expect(()=>validateEnv()).toThrow();});
- it('accepts Brave Search credentials and validates its context budget',()=>{withEnv({BRAVE_SEARCH_ENABLED:'true',BRAVE_SEARCH_API_KEY:'brave-test'});expect(validateEnv().BRAVE_SEARCH_ENABLED).toBe('true');withEnv({BRAVE_SEARCH_MAX_TOKENS:'99999'});expect(()=>validateEnv()).toThrow();});
+ it('accepts Brave Search credentials, empty optional country and validates its context budget',()=>{withEnv({BRAVE_SEARCH_ENABLED:'true',BRAVE_SEARCH_API_KEY:'brave-test',BRAVE_SEARCH_COUNTRY:''});expect(validateEnv().BRAVE_SEARCH_ENABLED).toBe('true');expect(validateEnv().BRAVE_SEARCH_COUNTRY).toBeUndefined();withEnv({BRAVE_SEARCH_MAX_TOKENS:'99999'});expect(()=>validateEnv()).toThrow();});
  it('refuses production without Arcjet unless explicitly acknowledged',()=>{
   withEnv({NODE_ENV:'production'});expect(()=>validateEnv()).toThrow();
   withEnv({NODE_ENV:'production',ARCJET_ALLOW_DISABLED_IN_PRODUCTION:'true'});expect(()=>validateEnv()).not.toThrow();
