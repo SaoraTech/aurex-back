@@ -7,6 +7,8 @@ export interface AiOptions {
   systemInstruction?: string;
   temperature?: number;
   maxOutputTokens?: number;
+  signal?: AbortSignal;
+  onToken?: (delta: string) => void;
 }
 
 export interface AiResult {
