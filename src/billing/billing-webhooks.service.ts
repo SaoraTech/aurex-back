@@ -187,7 +187,7 @@ export class BillingWebhooksService {
     const data = event.data;
     const metadata = data.metadata ?? data.subscription?.metadata ?? {};
     const localPaymentId = String(metadata.localPaymentId ?? '');
-    const providerSubscriptionId = String(data.subscription_id ?? data.subscription?.id ?? data.id ?? '');
+    const providerSubscriptionId = String(data.subscription_id ?? data.subscription?.id ?? '');
 
     let localPayment: any;
     if (localPaymentId) {
@@ -264,6 +264,9 @@ export class BillingWebhooksService {
     }
 
     if (type === 'payment.succeeded' || type === 'subscription.active' || type === 'subscription.renewed') {
+      if (!providerSubscriptionId) {
+        throw badRequest('DODO_SUBSCRIPTION_ID_MISSING', 'L’événement Dodo ne contient pas de référence d’abonnement vérifiable.');
+      }
       const now = new Date();
       if (localPayment) {
         await this.db.update(payment).set({ status: 'succeeded', rawStatus: type, updatedAt: now })
@@ -278,7 +281,7 @@ export class BillingWebhooksService {
         userId,
         plan,
         provider: 'dodo_payments',
-        providerSubscriptionId: providerSubscriptionId || String(data.payment_id ?? ''),
+        providerSubscriptionId,
         status: 'active',
         currentPeriodStart: start,
         currentPeriodEnd: end,
