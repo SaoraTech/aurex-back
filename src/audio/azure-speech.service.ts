@@ -18,7 +18,7 @@ export class AzureSpeechService{
   return {key:this.config.get<string>('azureSpeechKey')!,region:this.config.get<string>('azureSpeechRegion')!,resource:this.config.get<string>('azureSpeechResourceName')!};
  }
  private get timeout(){return this.config.get<number>('azureSpeechTimeoutMs')??30000;}
- async synthesize(text:string,language='fr'):{audio:Buffer;contentType:string}|Promise<{audio:Buffer;contentType:string}>{
+ async synthesize(text:string,language='fr'):Promise<{audio:Buffer;contentType:string}>{
   const {key,region}=this.credentials;
   const locale=localeFor(language);
   const voice=language==='en'?(this.config.get<string>('azureSpeechTtsVoiceEn')??'en-US-JennyNeural'):(this.config.get<string>('azureSpeechTtsVoiceFr')??'fr-FR-DeniseNeural');
@@ -35,7 +35,7 @@ export class AzureSpeechService{
    return {audio,contentType:res.headers.get('content-type')?.split(';')[0]||'audio/mpeg'};
   });
  }
- async transcribe(audio:Buffer,mimeType:string,filename:string,language='fr'):{text:string;languageCode?:string;durationMilliseconds:number}|Promise<{text:string;languageCode?:string;durationMilliseconds:number}>{
+ async transcribe(audio:Buffer,mimeType:string,filename:string,language='fr'):Promise<{text:string;languageCode?:string;durationMilliseconds:number}>{
   const {key,resource}=this.credentials;
   return this.metrics.track('azure-speech','stt',async()=>{
    const form=new FormData();
