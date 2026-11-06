@@ -211,7 +211,7 @@ export class BillingWebhooksService {
 
     const userId = localPayment?.userId ?? currentSubscription?.userId ?? String(metadata.userId ?? '');
     const plan = productPlan ?? localPayment?.plan ?? currentSubscription?.plan ?? metadata.plan;
-    if (metadata.plan && productPlan && metadata.plan !== productPlan) {
+    if (type !== 'subscription.plan_changed' && metadata.plan && productPlan && metadata.plan !== productPlan) {
       throw badRequest('DODO_PRODUCT_PLAN_MISMATCH', 'Le produit Dodo ne correspond pas au plan Aurex attendu.');
     }
     if (!userId || !plan) {
