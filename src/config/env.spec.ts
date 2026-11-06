@@ -17,5 +17,6 @@ describe('validateEnv',()=>{
   withEnv({NODE_ENV:'production',ARCJET_ALLOW_DISABLED_IN_PRODUCTION:'true'});expect(()=>validateEnv()).not.toThrow();
   withEnv({NODE_ENV:'production',ARCJET_KEY:'ajkey_x'});expect(()=>validateEnv()).not.toThrow();
  });
+ it('rejects unsupported Azure Speech output formats',()=>{withEnv({AZURE_SPEECH_TTS_OUTPUT_FORMAT:'raw-header-value'});expect(()=>validateEnv()).toThrow();});
  it('rejects invalid PLAN_LIMITS_JSON',()=>{withEnv({PLAN_LIMITS_JSON:'{nope'});expect(()=>validateEnv()).toThrow();});
 });
