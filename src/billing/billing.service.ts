@@ -399,6 +399,8 @@ export class BillingService {
         periodEnd: currentPeriodEnd.toISOString(),
       };
     }
+
+    return { received: true, status: 'failed', warning: 'UNSUPPORTED_PAYMENT_STATUS' };
   }
 }
 
