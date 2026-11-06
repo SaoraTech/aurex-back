@@ -254,14 +254,15 @@ export class BillingService {
       throw badRequest('PAYMENT_REFERENCE_MISMATCH', 'Référence de paiement inconnue.');
     }
 
-    // Strict idempotency: if already completed, acknowledge without duplicate action
+    // Strict idempotency: acknowledge terminal states without repeating effects.
     if (local.status === 'succeeded') {
       return { received: true, status: 'succeeded', alreadyProcessed: true };
     }
-
-    // Invalid transitions
-    if (local.status === 'failed' || local.status === 'cancelled' || local.status === 'refunded') {
-      throw badRequest('INVALID_PAYMENT_TRANSITION', 'Transition de paiement invalide.');
+    if (local.status === 'failed' && verified.status === 'failed') {
+      return { received: true, status: 'failed', alreadyProcessed: true };
+    }
+    if (local.status === 'cancelled' || local.status === 'refunded') {
+      return { received: true, status: local.status, alreadyProcessed: true };
     }
 
     // Verify amount and currency
@@ -280,6 +281,30 @@ export class BillingService {
     const webhookUser = verified.metadata?.userId ?? verified.metadata?.user_id;
     if (webhookUser && webhookUser !== local.userId) {
       throw badRequest('USER_MISMATCH', 'L’utilisateur du webhook ne correspond pas à la commande locale.');
+    }
+
+    if (verified.status === 'pending') {
+      await this.db.update(payment).set({
+        status: 'processing',
+        rawStatus: verified.externalReference ?? 'PENDING',
+        updatedAt: new Date(),
+      }).where(and(
+        eq(payment.id, local.id),
+        or(eq(payment.status, 'pending'), eq(payment.status, 'processing')),
+      ));
+      return { received: true, status: 'processing' };
+    }
+
+    if (verified.status === 'failed') {
+      await this.db.update(payment).set({
+        status: 'failed',
+        rawStatus: verified.externalReference ?? 'FAILED',
+        updatedAt: new Date(),
+      }).where(and(
+        eq(payment.id, local.id),
+        or(eq(payment.status, 'pending'), eq(payment.status, 'processing')),
+      ));
+      return { received: true, status: 'failed' };
     }
 
     const plan = local.plan as PlanName;
@@ -373,23 +398,6 @@ export class BillingService {
         plan,
         periodEnd: currentPeriodEnd.toISOString(),
       };
-    } else {
-      // Payment failed at provider (must NEVER overwrite an already succeeded payment)
-      await this.db
-        .update(payment)
-        .set({
-          status: 'failed',
-          rawStatus: verified.externalReference ?? 'FAILED',
-          updatedAt: new Date(),
-        })
-        .where(
-          and(
-            eq(payment.id, local.id),
-            ne(payment.status, 'succeeded'),
-          ),
-        );
-
-      return { received: true, status: 'failed' };
     }
   }
 }
