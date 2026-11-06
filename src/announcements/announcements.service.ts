@@ -232,9 +232,9 @@ export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
     if (userId && rows.length) {
       const reads = await this.db.select({ announcementId: announcementRead.announcementId })
         .from(announcementRead)
-        .where(and(eq(announcementRead.userId, userId), inArray(announcementRead.announcementId, rows.map(row => row.id))));
-      const readIds = new Set(reads.map((row: { announcementId: string }) => row.announcementId));
-      items = rows.map(row => ({ ...row, isRead: readIds.has(row.id) }));
+        .where(and(eq(announcementRead.userId, userId), inArray(announcementRead.announcementId, rows.map((row: { id: string }) => row.id))));
+      const readIds = new Set<string>(reads.map((row: { announcementId: string }) => row.announcementId));
+      items = rows.map((row: { id: string }) => ({ ...row, isRead: readIds.has(row.id) }));
     }
 
     return {
