@@ -122,7 +122,7 @@ export class EntitlementsService {
     }
   }
 
-  async expireElapsedSubscriptions(limit = 500) {
+  async expireElapsedSubscriptions(limit = 100) {
     if (!this.db) return { expiredSubscriptions: 0, usersSynced: 0 };
     const now = new Date();
     const due = await this.db.select({ id: subscription.id, userId: subscription.userId })
@@ -148,8 +148,10 @@ export class EntitlementsService {
 
     const updatedUserIds: string[] = (updated as Array<{ userId: string }>).map(row => row.userId);
     const userIds: string[] = [...new Set<string>(updatedUserIds)];
-    for (const userId of userIds) {
-      await this.syncNotificationMembership(userId);
+    // Bound outbound Novu concurrency so a large expiry batch cannot overwhelm
+    // the provider or keep the Render Cron process alive indefinitely.
+    for (let index = 0; index < userIds.length; index += 5) {
+      await Promise.all(userIds.slice(index, index + 5).map(userId => this.syncNotificationMembership(userId)));
     }
 
     return { expiredSubscriptions: updated.length, usersSynced: userIds.length };
