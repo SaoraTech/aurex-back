@@ -179,22 +179,22 @@ export class NotificationsService {
           subscriptions: [{ identifier, subscriberId: input.subscriberId }],
           name,
         };
-        let topicResponse = await fetchWithTimeout(
+        const topicResponse = await fetchWithTimeout(
           'novu',
           topicUrl,
-          { method: 'POST', headers, body: JSON.stringify(topicBody) },
+          {
+            method: 'POST',
+            headers: { ...headers, 'Idempotency-Key': `${topicKey}:${identifier}` },
+            body: JSON.stringify(topicBody),
+          },
           5000,
         );
 
-        if (topicResponse.status === 409) {
-          topicResponse = await fetchWithTimeout(
-            'novu',
-            `${topicUrl}/${encodeURIComponent(identifier)}`,
-            { method: 'PATCH', headers, body: JSON.stringify({ name }) },
-            5000,
-          );
-        }
-        return topicResponse;
+        // A conflict means the same subscriber is already attached to this topic.
+        // The operation is idempotent; do not call an undocumented PATCH endpoint.
+        return topicResponse.status === 409
+          ? { ok: true, status: 409 }
+          : topicResponse;
       };
 
       // All users receive global announcements; a second topic isolates the
@@ -219,7 +219,7 @@ export class NotificationsService {
           staleUrl,
           {
             method: 'DELETE',
-            headers,
+            headers: { ...headers, 'Idempotency-Key': `${staleTopicKey}:remove:${identifier}` },
             body: JSON.stringify({ subscriptions: [{ identifier, subscriberId: input.subscriberId }] }),
           },
           5000,
