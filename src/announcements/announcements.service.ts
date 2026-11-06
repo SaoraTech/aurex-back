@@ -232,6 +232,25 @@ export class AnnouncementsService {
 
   async retryFailedEditorialNotifications() {
     const staleBefore = new Date(Date.now() - 5 * 60 * 1000);
+    const recentPublished = await this.db.select().from(announcement).where(and(
+      eq(announcement.status, 'published'),
+      gte(announcement.publishedAt, new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)),
+    )).orderBy(desc(announcement.publishedAt)).limit(100);
+
+    let retried = 0;
+    for (const item of recentPublished) {
+      const mode = item.publicationMode === 'SCHEDULED' ? item.scheduledDeliveryMode : item.publicationMode;
+      if (mode !== 'MULTI_CHANNEL') continue;
+      const [existingDelivery] = await this.db.select({ id: notificationDelivery.id })
+        .from(notificationDelivery)
+        .where(eq(notificationDelivery.announcementId, item.id))
+        .limit(1);
+      if (!existingDelivery) {
+        await this.dispatchEditorialNotification(item);
+        retried += 1;
+      }
+    }
+
     const retryable = await this.db.select({
       announcementId: notificationDelivery.announcementId,
     }).from(notificationDelivery).where(and(
@@ -245,7 +264,6 @@ export class AnnouncementsService {
       retryable.map((row: { announcementId: string | null }) => row.announcementId).filter(Boolean),
     )] as string[];
 
-    let retried = 0;
     for (const id of announcementIds) {
       const item = await this.getById(id);
       if (!item || item.status !== 'published') continue;
