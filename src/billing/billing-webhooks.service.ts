@@ -188,6 +188,7 @@ export class BillingWebhooksService {
     const metadata = data.metadata ?? data.subscription?.metadata ?? {};
     const localPaymentId = String(metadata.localPaymentId ?? '');
     const providerSubscriptionId = String(data.subscription_id ?? data.subscription?.id ?? '');
+    const productPlan = this.dodo.resolvePlanFromProductId(data.product_id ?? data.product?.product_id);
 
     let localPayment: any;
     if (localPaymentId) {
@@ -208,7 +209,10 @@ export class BillingWebhooksService {
     }
 
     const userId = localPayment?.userId ?? currentSubscription?.userId ?? String(metadata.userId ?? '');
-    const plan = localPayment?.plan ?? currentSubscription?.plan ?? metadata.plan;
+    const plan = productPlan ?? localPayment?.plan ?? currentSubscription?.plan ?? metadata.plan;
+    if (metadata.plan && productPlan && metadata.plan !== productPlan) {
+      throw badRequest('DODO_PRODUCT_PLAN_MISMATCH', 'Le produit Dodo ne correspond pas au plan Aurex attendu.');
+    }
     if (!userId || !plan) {
       this.logger.warn({ msg: 'dodo_webhook_local_reference_missing', eventType: event.type });
       return { ignored: true, reason: 'LOCAL_REFERENCE_NOT_FOUND' };
@@ -255,15 +259,29 @@ export class BillingWebhooksService {
       return { status: 'canceled' };
     }
 
-    if (type === 'subscription.on_hold') {
+    if (type === 'subscription.on_hold' || type === 'subscription.failed') {
       await this.db.update(subscription).set({ status: 'past_due', updatedAt: new Date() }).where(and(
         eq(subscription.provider, 'dodo_payments'),
         eq(subscription.providerSubscriptionId, providerSubscriptionId),
       ));
+      if (localPayment && type === 'subscription.failed') {
+        await this.db.update(payment).set({ status: 'failed', rawStatus: type, updatedAt: new Date() })
+          .where(and(eq(payment.id, localPayment.id), eq(payment.provider, 'dodo_payments')));
+      }
       return { status: 'past_due' };
     }
 
-    if (type === 'payment.succeeded' || type === 'subscription.active' || type === 'subscription.renewed') {
+    if (type === 'payment.succeeded') {
+      // Dodo emits payment.succeeded alongside subscription.active/renewed.
+      // Payment confirmation is financial state; subscription events grant access.
+      if (localPayment) {
+        await this.db.update(payment).set({ status: 'succeeded', rawStatus: type, updatedAt: new Date() })
+          .where(and(eq(payment.id, localPayment.id), eq(payment.provider, 'dodo_payments')));
+      }
+      return { status: 'succeeded', subscriptionActivated: false };
+    }
+
+    if (type === 'subscription.active' || type === 'subscription.renewed' || type === 'subscription.plan_changed') {
       if (!providerSubscriptionId) {
         throw badRequest('DODO_SUBSCRIPTION_ID_MISSING', 'L’événement Dodo ne contient pas de référence d’abonnement vérifiable.');
       }
@@ -273,7 +291,7 @@ export class BillingWebhooksService {
           .where(and(eq(payment.id, localPayment.id), eq(payment.provider, 'dodo_payments')));
       }
       const durationDays = String(plan).endsWith('_promo') ? 7 : 30;
-      const start = this.toDate(data.current_period_start ?? data.created_at) ?? now;
+      const start = this.toDate(data.current_period_start ?? data.previous_billing_date ?? data.created_at) ?? now;
       const end = this.toDate(data.current_period_end ?? data.next_billing_date ?? data.expires_at)
         ?? new Date(start.getTime() + durationDays * 86400 * 1000);
 
