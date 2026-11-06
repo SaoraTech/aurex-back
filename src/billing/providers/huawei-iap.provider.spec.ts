@@ -65,12 +65,13 @@ describe('HuaweiIapProvider', () => {
     const payload = provider.createDeveloperPayload('user_1');
 
     expect(provider.resolveDeveloperPayload(payload)).toBe('user_1');
-    expect(() => provider.resolveDeveloperPayload(`${payload.slice(0, -1)}x`)).toThrow('signature is invalid');
+    const [encoded, signature] = payload.split('.');
+    const tampered = `${encoded}.${signature[0] === 'A' ? 'B' : 'A'}${signature.slice(1)}`;
+    expect(() => provider.resolveDeveloperPayload(tampered)).toThrow('signature is invalid');
   });
 
   it('rejects unsigned raw user IDs in production', () => {
     const values = {
-      ...((createConfig() as any).get ? {} : {}),
       huaweiIapPayloadSecret: 'huawei-payload-signing-secret-at-least-32-chars',
       nodeEnv: 'production',
     };
