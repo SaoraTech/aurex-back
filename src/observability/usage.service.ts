@@ -9,7 +9,7 @@ export interface CostEstimate{costUsd:number|null;isEstimated:boolean;isUnknown:
 export interface UsageSummaryItem{kind:UsageKind;provider:string;totalUnits:number;callCount:number;avgLatencyMs:number|null;estimatedCostUsd:number|null;}
 export const startOfUtcDay=(d=new Date())=>new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),d.getUTCDate()));
 export const startOfUtcMonth=(d=new Date())=>new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),1));
-const DEFAULT_UNIT_PRICES_PER_1K:Record<UsageKind,number|null>={llm_call:0.0005,tts_chars:0.015,stt_call:5,stt_seconds:null,web_search:5,deep_research:20,math_call:2};
+const DEFAULT_UNIT_PRICES_PER_1K:Record<UsageKind,number|null>={llm_call:0.0005,tts_chars:null,stt_call:null,stt_seconds:null,web_search:5,deep_research:20,math_call:2};
 @Injectable()
 export class UsageService{
  private readonly logger=new Logger(UsageService.name);
