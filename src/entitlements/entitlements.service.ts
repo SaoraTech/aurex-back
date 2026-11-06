@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, ne } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { DRIZZLE } from '../db/db.constants';
 import { subscription } from '../db/schema';
 import { newId } from '../common/ids';
@@ -46,6 +46,13 @@ export class EntitlementsService {
     const db = executor ?? this.db;
     if (!db) throw new Error('Entitlements database is unavailable');
 
+    // Serialize concurrent upserts for the same Aurex account. Keep every
+    // provider subscription row: marking another provider's subscription as
+    // canceled locally would not cancel billing at Apple, Google, Huawei or Dodo.
+    if (typeof db.execute === 'function') {
+      await db.execute(sql`select pg_advisory_xact_lock(hashtextextended(${input.userId}, 0))`);
+    }
+
     const [existing] = await db.select().from(subscription).where(and(
       eq(subscription.userId, input.userId),
       eq(subscription.provider, input.provider),
@@ -61,39 +68,30 @@ export class EntitlementsService {
       updatedAt: new Date(),
     };
 
-    let current: any;
     if (existing) {
+      // Ignore an older activation/renewal arriving after a newer billing period.
+      if (
+        input.status === 'active' &&
+        existing.currentPeriodStart &&
+        input.currentPeriodStart < existing.currentPeriodStart
+      ) {
+        return existing;
+      }
       const [updated] = await db.update(subscription).set(values)
         .where(eq(subscription.id, existing.id)).returning();
-      current = updated ?? { id: existing.id, ...values };
-    } else {
-      const [created] = await db.insert(subscription).values({
-        id: newId(),
-        userId: input.userId,
-        ...values,
-        provider: input.provider,
-        providerSubscriptionId: input.providerSubscriptionId,
-        createdAt: new Date(),
-      }).returning();
-      current = created;
+      return updated ?? { id: existing.id, ...values };
     }
 
-    // Aurex grants one effective paid entitlement at a time. When a new provider
-    // confirms an active purchase, close competing active subscriptions across
-    // providers, while preserving the subscription being updated.
-    if (input.status === 'active' && current?.id) {
-      await db.update(subscription).set({
-        status: 'canceled',
-        cancelAtPeriodEnd: false,
-        updatedAt: new Date(),
-      }).where(and(
-        eq(subscription.userId, input.userId),
-        eq(subscription.status, 'active'),
-        ne(subscription.id, current.id),
-      ));
-    }
+    const [created] = await db.insert(subscription).values({
+      id: newId(),
+      userId: input.userId,
+      ...values,
+      provider: input.provider,
+      providerSubscriptionId: input.providerSubscriptionId,
+      createdAt: new Date(),
+    }).returning();
 
-    return current;
+    return created;
   }
 
   async expireProviderSubscriptions(userId: string, provider: string) {
