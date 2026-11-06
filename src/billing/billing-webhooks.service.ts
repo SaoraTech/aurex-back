@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, lte, sql } from 'drizzle-orm';
 import { badGateway, badRequest, notFound, unauthorized } from '../common/errors';
 import { newId } from '../common/ids';
 import { DRIZZLE } from '../db/db.constants';
@@ -112,8 +112,25 @@ export class BillingWebhooksService {
         eq(billingWebhookEvent.providerEventId, eventId),
       )).limit(1);
 
-      if (existing?.status === 'processed' || existing?.status === 'processing') {
+      if (existing?.status === 'processed') {
         return { received: true, duplicate: true, status: existing.status };
+      }
+
+      // A process can crash after claiming an event. Reclaim only failed events or
+      // processing leases older than five minutes; the conditional UPDATE is the
+      // concurrency gate so only one webhook delivery can acquire the lease.
+      const staleBefore = new Date(now.getTime() - 5 * 60 * 1000);
+      const retryCondition = existing?.status === 'failed'
+        ? eq(billingWebhookEvent.status, 'failed')
+        : existing?.status === 'processing'
+          ? and(
+              eq(billingWebhookEvent.status, 'processing'),
+              lte(billingWebhookEvent.updatedAt, staleBefore),
+            )
+          : undefined;
+
+      if (!retryCondition) {
+        return { received: true, duplicate: true, status: existing?.status ?? 'processing' };
       }
 
       const [retry] = await this.db.update(billingWebhookEvent).set({
@@ -124,7 +141,7 @@ export class BillingWebhooksService {
       }).where(and(
         eq(billingWebhookEvent.provider, provider),
         eq(billingWebhookEvent.providerEventId, eventId),
-        eq(billingWebhookEvent.status, 'failed'),
+        retryCondition,
       )).returning();
 
       if (!retry) return { received: true, duplicate: true, status: 'processing' };
