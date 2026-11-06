@@ -1,6 +1,6 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { and, desc, eq, gte } from 'drizzle-orm';
+import { and, desc, eq, gte, isNull, or } from 'drizzle-orm';
 import { DRIZZLE } from '../db/db.constants';
 import { subscription } from '../db/schema';
 
@@ -192,7 +192,7 @@ export class PlansService {
           and(
             eq(subscription.userId, userId),
             eq(subscription.status, 'active'),
-            gte(subscription.currentPeriodEnd, now),
+            or(isNull(subscription.currentPeriodEnd), gte(subscription.currentPeriodEnd, now)),
           ),
         )
         .orderBy(desc(subscription.updatedAt))
@@ -241,13 +241,9 @@ export class PlansService {
         currentPeriodEnd: found.currentPeriodEnd,
         cancelAtPeriodEnd: found.cancelAtPeriodEnd,
       };
-    } catch {
-      return {
-        plan: 'free',
-        commercialTier: 'free',
-        isPromo: false,
-        status: 'none',
-      };
+    } catch (error) {
+      // A database outage must not silently downgrade a paying subscriber to Free.
+      throw error;
     }
   }
 }
