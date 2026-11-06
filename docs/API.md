@@ -80,3 +80,12 @@ Both routes require authentication and are protected by the tts / stt security p
 ~~~
 
 Clients should use the stable code field rather than matching localized messages. Rate-limit responses may include Retry-After. Never send authoritative plan, price or provider configuration from the client.
+
+## Scheduled publications
+
+Announcements with `publicationMode: "SCHEDULED"` are persisted with a due time and delivery mode. To execute due publications, configure a Render Cron Job for this service with:
+
+- Command: `npm run jobs:publish-announcements`
+- Schedule: every minute (`* * * * *`)
+
+The backend web service does not run an in-process timer. Until this external Cron Job is configured and enabled, scheduled records remain queued and are not automatically published. The job is idempotent and can safely be retried.

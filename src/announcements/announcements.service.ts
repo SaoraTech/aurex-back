@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { and, desc, eq, inArray, isNull, lte, sql } from 'drizzle-orm';
 import { DRIZZLE } from '../db/db.constants';
 import { announcement, announcementRead, notificationDelivery } from '../db/schema';
@@ -8,30 +8,12 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { CreateAnnouncementDto, NotificationChannel, ScheduledDeliveryMode, UpdateAnnouncementDto } from './announcement.types';
 
 @Injectable()
-export class AnnouncementsService implements OnModuleInit, OnModuleDestroy {
-  private readonly logger = new Logger(AnnouncementsService.name);
-  private scheduledTimer?: NodeJS.Timeout;
+export class AnnouncementsService {
 
   constructor(
     @Inject(DRIZZLE) private readonly db: any,
     private readonly notifications: NotificationsService,
   ) {}
-
-  onModuleInit() {
-    this.scheduledTimer = setInterval(() => {
-      void this.publishDueScheduled().catch(error => {
-        this.logger.error({ msg: 'scheduled_publication_poll_failed', error: (error as Error).message });
-      });
-    }, 30_000);
-    this.scheduledTimer.unref?.();
-    void this.publishDueScheduled().catch(error => {
-      this.logger.error({ msg: 'scheduled_publication_initial_poll_failed', error: (error as Error).message });
-    });
-  }
-
-  onModuleDestroy() {
-    if (this.scheduledTimer) clearInterval(this.scheduledTimer);
-  }
 
   async create(dto: CreateAnnouncementDto, creatorId?: string, _isAdmin = false) {
     const mode = dto.publicationMode ?? 'IN_APP_ONLY';

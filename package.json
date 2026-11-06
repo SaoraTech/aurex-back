@@ -2,7 +2,7 @@
   "name": "aurex-backend-v1",
   "version": "1.0.0",
   "private": true,
-  "description": "Aurex V1 API \u2014 NestJS, Drizzle ORM, Neon PostgreSQL and Better Auth",
+  "description": "Aurex V1 API — NestJS, Drizzle ORM, Neon PostgreSQL and Better Auth",
   "engines": {
     "node": ">=22.21.0"
   },
@@ -18,7 +18,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:check": "drizzle-kit check",
-    "test:load": "node tests/load/resilience-benchmark.js"
+    "test:load": "node tests/load/resilience-benchmark.js",
+    "jobs:publish-announcements": "node dist/jobs/publish-scheduled-announcements.js"
   },
   "dependencies": {
     "@arcjet/node": "^1.0.0",
