@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AppException, badRequest, payloadTooLarge } from '../common/errors';
 import { newId } from '../common/ids';
-import { ProviderError, providerErrorToHttp } from '../common/provider-error';
+import { ProviderError, providerErrorToHttp, toProviderError } from '../common/provider-error';
 import { PlansService } from '../plans/plans.service';
 import { QuotasService } from '../quotas/quotas.service';
 import { UsageService } from '../observability/usage.service';
@@ -106,10 +106,16 @@ export class AudioService {
       // Compensate quota reservation on provider error
       await this.quotas.compensateQuota(opId);
 
-      const err =
-        error instanceof ProviderError
-          ? error
-          : new ProviderError('elevenlabs', 'unavailable', (error as Error).message ?? 'unexpected');
+      const err = toProviderError('elevenlabs', error);
+      this.logger.warn(JSON.stringify({
+        event: 'audio.provider_failure',
+        provider: err.provider,
+        operation: 'tts',
+        kind: err.kind,
+        httpStatus: err.status ?? null,
+        durationMs: Date.now() - started,
+        requestId: requestId ?? null,
+      }));
 
       await this.usage.record({
         userId,
@@ -210,10 +216,16 @@ export class AudioService {
     } catch (error) {
       await this.quotas.compensateQuota(opId);
 
-      const err =
-        error instanceof ProviderError
-          ? error
-          : new ProviderError('elevenlabs', 'unavailable', (error as Error).message ?? 'unexpected');
+      const err = toProviderError('elevenlabs', error);
+      this.logger.warn(JSON.stringify({
+        event: 'audio.provider_failure',
+        provider: err.provider,
+        operation: 'stt',
+        kind: err.kind,
+        httpStatus: err.status ?? null,
+        durationMs: Date.now() - started,
+        requestId: requestId ?? null,
+      }));
 
       await this.usage.record({
         userId,
