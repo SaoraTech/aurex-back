@@ -12,6 +12,7 @@ export class MessagesController {
   constructor(private readonly messages:MessagesService){}
   @Get(':messageId/versions') versions(@CurrentUserId() uid:string,@Param('conversationId') cid:string,@Param('messageId') mid:string){return this.messages.versions(uid,cid,mid);}
   @Patch(':messageId') @Protect('chat') edit(@CurrentUserId() uid:string,@Param('conversationId') cid:string,@Param('messageId') mid:string,@Body() dto:EditMessageDto){return this.messages.edit(uid,cid,mid,dto.content);}
+  @Post(':messageId/versions/:versionId/restore') @Protect('chat') restoreVersion(@CurrentUserId() uid:string,@Param('conversationId') cid:string,@Param('messageId') mid:string,@Param('versionId') vid:string){return this.messages.restoreVersion(uid,cid,mid,vid);}
   @Delete(':messageId') @Protect('chat') remove(@CurrentUserId() uid:string,@Param('conversationId') cid:string,@Param('messageId') mid:string){return this.messages.remove(uid,cid,mid);}
   @Post(':messageId/feedback') @Protect('chat') feedback(@CurrentUserId() uid:string,@Param('conversationId') cid:string,@Param('messageId') mid:string,@Body() dto:FeedbackDto){return this.messages.feedback(uid,cid,mid,dto);}
 }
