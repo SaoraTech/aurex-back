@@ -1,5 +1,5 @@
 import { Inject, Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import { DRIZZLE } from '../db/db.constants';
 import { auditEvent, conversation, message } from '../db/schema';
 import { ConversationsService } from '../conversations/conversations.service';
@@ -23,8 +23,8 @@ export class MessagesService {
   }
   async versions(userId:string,conversationId:string,messageId:string){
     const current=await this.getOwnedMessage(userId,conversationId,messageId);
-    const revisions=await this.db.select().from(auditEvent).where(and(eq(auditEvent.actorUserId,userId),eq(auditEvent.targetType,'message'),eq(auditEvent.targetId,messageId),eq(auditEvent.action,'message.edited'))).orderBy(desc(auditEvent.createdAt)).limit(50);
-    return {current:{content:current.content,createdAt:current.createdAt},previous:revisions.map((e:any)=>({content:e.metadata?.previousContent??null,createdAt:e.createdAt})).filter((e:any)=>typeof e.content==='string')};
+    const revisions=await this.db.select().from(auditEvent).where(and(eq(auditEvent.actorUserId,userId),eq(auditEvent.targetType,'message'),eq(auditEvent.targetId,messageId),inArray(auditEvent.action,['message.edited','message.alternative']))).orderBy(desc(auditEvent.createdAt)).limit(50);
+    return {current:{content:current.content,createdAt:current.createdAt},previous:revisions.filter((e:any)=>e.action==='message.edited').map((e:any)=>({content:e.metadata?.previousContent??null,createdAt:e.createdAt})).filter((e:any)=>typeof e.content==='string'),alternatives:revisions.filter((e:any)=>e.action==='message.alternative').map((e:any)=>({content:e.metadata?.content??null,messageId:e.metadata?.alternativeMessageId??null,createdAt:e.createdAt})).filter((e:any)=>typeof e.content==='string')};
   }
   async remove(userId:string,conversationId:string,messageId:string){
     const item=await this.getOwnedMessage(userId,conversationId,messageId);
