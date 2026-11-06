@@ -16,7 +16,7 @@ export class ProviderRegistryService {
   snapshot() {
     const c = (k: string) => this.config.get(k);
     const groqReady = !!c('groqApiKey');
-    const elevenReady = !!c('elevenLabsApiKey') && !!c('elevenLabsTtsVoiceId');
+    const azureReady = !!c('azureSpeechKey') && !!c('azureSpeechRegion') && !!c('azureSpeechResourceName');
 
     return {
       llm: [
@@ -27,11 +27,11 @@ export class ProviderRegistryService {
         },
       ],
       webSearch: {
-        tavily: this.state(!!c('tavilyEnabled'), !!c('tavilyApiKey')),
+        brave: this.state(!!c('braveSearchEnabled'), !!c('braveSearchApiKey')),
       },
       speech: {
         textToSpeech: {
-          elevenlabs: this.state(!!c('elevenLabsEnabled'), elevenReady),
+          azure: this.state(!!c('azureSpeechEnabled'), azureReady),
         },
         speechToText: {
           elevenlabs: this.state(!!c('elevenLabsEnabled'), elevenReady),
