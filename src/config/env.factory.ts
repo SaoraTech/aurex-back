@@ -3,6 +3,9 @@ export const envFactory=()=>{
  const env=validateEnv(process.env);
  return {
   nodeEnv:env.NODE_ENV,port:env.PORT,logLevel:env.LOG_LEVEL,swaggerEnabled:env.SWAGGER_ENABLED,databaseUrl:env.DATABASE_URL,
+  guestSessionTtlSeconds:env.GUEST_SESSION_TTL_SECONDS,guestSessionMaxLifetimeSeconds:env.GUEST_SESSION_MAX_LIFETIME_SECONDS,
+  guestMessageLimit:env.GUEST_MESSAGE_LIMIT,guestContextMessages:env.GUEST_CONTEXT_MESSAGES,
+  guestMaxPromptChars:env.GUEST_MAX_PROMPT_CHARS,guestMaxActiveSessions:env.GUEST_MAX_ACTIVE_SESSIONS,
   adminEmails:(env.ADMIN_EMAILS??'').split(',').map(e=>e.trim().toLowerCase()).filter(Boolean),
   trustedOrigins:(env.TRUSTED_ORIGINS??'').split(',').map(e=>e.trim()).filter(Boolean),
   corsOrigin:env.CORS_ORIGIN??'',trustedProxies:(env.TRUSTED_PROXIES??'').split(',').map(e=>e.trim()).filter(Boolean),
