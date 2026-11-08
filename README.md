@@ -36,7 +36,11 @@ Mobile / Web / Desktop clients
 
 Provider credentials are held by the backend. Client applications must never receive Azure, Groq, database or payment-provider secrets.
 
-## Guest Mode\n\nAurex supports a temporary, unauthenticated Guest Mode. Guest sessions are memory-only, use Groq through the existing AI orchestrator, and never persist prompts, answers or conversation context in Neon. The backend returns a short-lived Bearer token; clients must keep it in volatile memory and create a new session on each fresh app process. See [docs/GUEST_MODE.md](docs/GUEST_MODE.md) for the API, quotas and single-instance/sticky-routing requirements.\n\n## Speech integration
+## Guest Mode
+
+Aurex supports a temporary, unauthenticated Guest Mode. Guest sessions are memory-only, use Groq through the existing AI orchestrator, and never persist prompts, answers or conversation context in Neon. The backend returns a short-lived Bearer token; clients must keep it in volatile memory and create a new session on each fresh app process. See [docs/GUEST_MODE.md](docs/GUEST_MODE.md) for the API, quotas and single-instance/sticky-routing requirements.
+
+## Speech integration
 
 Azure AI Speech is the **single provider** for both speech-to-text and text-to-speech.
 
