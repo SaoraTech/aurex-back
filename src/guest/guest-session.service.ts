@@ -40,8 +40,9 @@ export class GuestSessionService implements OnModuleDestroy {
     const token = randomBytes(32).toString('base64url');
     const now = Date.now();
     const ttlSeconds = this.number('guestSessionTtlSeconds', 43_200, 300, 86_400);
+    const maxLifetimeSeconds = this.number('guestSessionMaxLifetimeSeconds', 43_200, 300, 86_400);
     const session: GuestSession = {
-      id: randomUUID(), tokenHash: this.hash(token), createdAt: now, expiresAt: now + ttlSeconds * 1000,
+      id: randomUUID(), tokenHash: this.hash(token), createdAt: now, expiresAt: now + Math.min(ttlSeconds, maxLifetimeSeconds) * 1000,
       messages: [], used: 0, generating: false,
     };
     this.sessions.set(session.id, session);
@@ -101,7 +102,7 @@ export class GuestSessionService implements OnModuleDestroy {
         signal: controller.signal,
         ...(options.onToken ? { onToken: (delta: string) => { partial += delta; options.onToken?.(delta); } } : {}),
       });
-      if (controller.signal.aborted || this.sessions.get(session.id) !== session) throw new HttpException({ code: 'GENERATION_CANCELLED', message: 'La session invitée a été interrompue.' }, 499);
+      if (controller.signal.aborted || session.expiresAt <= Date.now() || this.sessions.get(session.id) !== session) throw new HttpException({ code: 'GENERATION_CANCELLED', message: 'La session invitée a été interrompue.' }, 499);
       session.messages = this.boundedContext([...candidate, { role: 'assistant', content: result.text }]);
       session.used += 1;
       session.expiresAt = Math.min(session.createdAt + this.number('guestSessionMaxLifetimeSeconds', 43_200, 300, 86_400) * 1000,
@@ -129,7 +130,7 @@ export class GuestSessionService implements OnModuleDestroy {
   private messageLimit() { return this.number('guestMessageLimit', 10, 1, 100); }
   private contextWindow() { return this.number('guestContextMessages', 20, 2, 40); }
   private boundedContext(messages: GuestTurn[]) {
-    const maxChars = this.number('guestMaxContextChars', 24_000, 1_000, 50_000);
+    const maxChars = Math.max(this.maxPromptChars(), this.number('guestMaxContextChars', 24_000, 1_000, 50_000));
     const selected: GuestTurn[] = [];
     let chars = 0;
     for (const turn of messages.slice(-this.contextWindow()).reverse()) {
