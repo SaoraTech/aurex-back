@@ -28,6 +28,16 @@ describe('ArcjetService', () => {
     expect(protect.mock.calls[0][1]).toEqual({ userId: 'user-1' });
     expect(mod.slidingWindow).toHaveBeenCalled();
   });
+  it('applies a strict IP-scoped guest policy with Shield and bot detection', async () => {
+    const protect = jest.fn().mockResolvedValue(decision({}));
+    const { svc, mod } = await build(protect);
+    expect(POLICIES.guest).toMatchObject({ scope: 'ip', shield: true, bot: true, ipLimit: { intervalSeconds: 60, max: 6 }, onError: 'local' });
+    await svc.decide(req, 'guest');
+    expect(mod.shield).toHaveBeenCalled();
+    expect(mod.detectBot).toHaveBeenCalled();
+    expect(mod.slidingWindow).toHaveBeenCalled();
+    expect(protect.mock.calls[0][1]).toEqual({});
+  });
   it('translates a rate-limit denial into 429 with Retry-After', async () => {
     const { svc } = await build(jest.fn().mockResolvedValue(decision({ denied: true, rate: true, reset: 42 })));
     expect(await svc.decide(req, 'tts', 'u')).toMatchObject({ allowed: false, status: 429, code: 'RATE_LIMITED', retryAfterSeconds: 42 });
