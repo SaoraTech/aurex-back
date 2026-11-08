@@ -72,7 +72,8 @@ export const EnvSchema = z.object({
   GUEST_MESSAGE_LIMIT: z.coerce.number().int().min(1).max(100).default(10),
   GUEST_CONTEXT_MESSAGES: z.coerce.number().int().min(2).max(40).default(20),
   GUEST_MAX_PROMPT_CHARS: z.coerce.number().int().min(100).max(20000).default(12000),
-  GUEST_MAX_ACTIVE_SESSIONS: z.coerce.number().int().min(100).max(100000).default(20000),
+  GUEST_MAX_ACTIVE_SESSIONS: z.coerce.number().int().min(100).max(10000).default(2000),
+  GUEST_MAX_CONTEXT_CHARS: z.coerce.number().int().min(1000).max(50000).default(24000),
 }).superRefine((v,ctx)=>{
   const need=(cond:boolean,path:string,message:string)=>{if(!cond)ctx.addIssue({code:'custom',path:[path],message});};
   if(v.AZURE_SPEECH_ENABLED==='true'){
