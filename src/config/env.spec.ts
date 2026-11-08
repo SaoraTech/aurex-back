@@ -1,10 +1,16 @@
 import { validateEnv } from './env';
+import { envFactory } from './env.factory';
 const base={DATABASE_URL:'postgres://x',BETTER_AUTH_SECRET:'x'.repeat(32),BETTER_AUTH_URL:'http://localhost:3000'};
 const saved={...process.env};
 function withEnv(env:Record<string,string>){process.env={...saved,...base,...env} as any;}
 afterEach(()=>{process.env={...saved};});
 describe('validateEnv',()=>{
  it('accepts minimal development config with Azure Speech and Brave Search disabled',()=>{withEnv({NODE_ENV:'development'});const env=validateEnv();expect(env.AZURE_SPEECH_ENABLED).toBe('false');expect(env.BRAVE_SEARCH_ENABLED).toBe('false');});
+ it('wires Arcjet defaults and optional policies into runtime configuration',()=>{
+  withEnv({NODE_ENV:'development',ARCJET_KEY:'ajkey_test',ARCJET_BOT_ALLOW:'CATEGORY:PROGRAMMATIC,CATEGORY:SEARCH_ENGINE',ARCJET_FAIL_MODE:'deny'});
+  const config=envFactory();expect(config.arcjetMode).toBe('live');expect(config.arcjetFailMode).toBe('deny');expect(config.arcjetBotAllow).toEqual(['CATEGORY:PROGRAMMATIC','CATEGORY:SEARCH_ENGINE']);
+  withEnv({NODE_ENV:'development'});expect(envFactory().arcjetMode).toBe('disabled');
+ });
  it('requires Azure Speech key, region and resource name when enabled',()=>{
   withEnv({AZURE_SPEECH_ENABLED:'true'});expect(()=>validateEnv()).toThrow();
   withEnv({AZURE_SPEECH_ENABLED:'true',AZURE_SPEECH_KEY:'key',AZURE_SPEECH_REGION:'eastus',AZURE_SPEECH_RESOURCE_NAME:'aurex-speech'});
