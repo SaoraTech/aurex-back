@@ -54,6 +54,8 @@ export const EnvSchema = z.object({
   HUAWEI_IAP_PLUS_PRODUCT_ID: optStr,
   HUAWEI_IAP_PRO_PRODUCT_ID: optStr,
   ARCJET_KEY: optStr, ARCJET_MODE: z.enum(['live','dry_run','disabled']).optional(),
+  ARCJET_BOT_ALLOW: z.string().default('CATEGORY:PROGRAMMATIC'),
+  ARCJET_FAIL_MODE: z.enum(['local','deny']).default('local'),
   ARCJET_ALLOW_DISABLED_IN_PRODUCTION: bool,
   R2_ENABLED: bool, R2_ACCOUNT_ID: optStr, R2_BUCKET: optStr, R2_ACCESS_KEY_ID: optStr, R2_SECRET_ACCESS_KEY: optStr,
   BRAVE_SEARCH_ENABLED: bool, BRAVE_SEARCH_API_KEY: optStr,
