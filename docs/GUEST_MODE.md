@@ -36,7 +36,7 @@ SSE events:
 - `done`: completed assistant message, remaining quota and expiry
 - `error`: stable error payload
 
-A guest session allows one generation at a time. Context is limited to the latest configured number of turns. Failed and interrupted generations are not committed to the context and do not consume the message quota.
+A guest session allows one generation at a time. Context is limited by both the latest configured number of messages and a per-session character budget. Failed and interrupted generations are not committed to the context and do not consume the message quota.
 
 ## Defaults and environment variables
 
@@ -47,7 +47,8 @@ A guest session allows one generation at a time. Context is limited to the lates
 | `GUEST_MESSAGE_LIMIT` | 10 successful turns | 1–100 |
 | `GUEST_CONTEXT_MESSAGES` | 20 messages | 2–40 |
 | `GUEST_MAX_PROMPT_CHARS` | 12,000 | 100–20,000 |
-| `GUEST_MAX_ACTIVE_SESSIONS` | 20,000 | 100–100,000 |
+| `GUEST_MAX_ACTIVE_SESSIONS` | 2,000 | 100–10,000 |
+| `GUEST_MAX_CONTEXT_CHARS` | 24,000 characters/session | 1,000–50,000 |
 
 Guest requests use the Free Groq generation path. Guest quotas are independent from authenticated Free/Plus/Pro quotas. Web search, saved conversations, account memory, billing, audio, file storage and other account features are not exposed in Guest Mode.
 
