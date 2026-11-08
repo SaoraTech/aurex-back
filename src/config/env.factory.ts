@@ -3,6 +3,10 @@ export const envFactory=()=>{
  const env=validateEnv(process.env);
  return {
   nodeEnv:env.NODE_ENV,port:env.PORT,logLevel:env.LOG_LEVEL,swaggerEnabled:env.SWAGGER_ENABLED,databaseUrl:env.DATABASE_URL,
+  guestSessionTtlSeconds:env.GUEST_SESSION_TTL_SECONDS,guestSessionMaxLifetimeSeconds:env.GUEST_SESSION_MAX_LIFETIME_SECONDS,
+  guestMessageLimit:env.GUEST_MESSAGE_LIMIT,guestContextMessages:env.GUEST_CONTEXT_MESSAGES,
+  guestMaxPromptChars:env.GUEST_MAX_PROMPT_CHARS,guestMaxActiveSessions:env.GUEST_MAX_ACTIVE_SESSIONS,
+  guestMaxContextChars:env.GUEST_MAX_CONTEXT_CHARS,
   adminEmails:(env.ADMIN_EMAILS??'').split(',').map(e=>e.trim().toLowerCase()).filter(Boolean),
   trustedOrigins:(env.TRUSTED_ORIGINS??'').split(',').map(e=>e.trim()).filter(Boolean),
   corsOrigin:env.CORS_ORIGIN??'',trustedProxies:(env.TRUSTED_PROXIES??'').split(',').map(e=>e.trim()).filter(Boolean),
@@ -27,7 +31,8 @@ export const envFactory=()=>{
   huaweiIapApiBaseUrl:env.HUAWEI_IAP_API_BASE_URL,huaweiIapPublicKey:env.HUAWEI_IAP_PUBLIC_KEY,
   huaweiIapSignatureAlgorithm:env.HUAWEI_IAP_SIGNATURE_ALGORITHM,
   huaweiIapPlusProductId:env.HUAWEI_IAP_PLUS_PRODUCT_ID,huaweiIapProProductId:env.HUAWEI_IAP_PRO_PRODUCT_ID,
-  arcjetKey:env.ARCJET_KEY,arcjetMode:env.ARCJET_MODE,r2Enabled:env.R2_ENABLED,r2AccountId:env.R2_ACCOUNT_ID,
+  arcjetKey:env.ARCJET_KEY,arcjetMode:env.ARCJET_MODE??(env.ARCJET_KEY?'live':'disabled'),
+  arcjetBotAllow:env.ARCJET_BOT_ALLOW.split(',').map(v=>v.trim()).filter(Boolean),arcjetFailMode:env.ARCJET_FAIL_MODE,r2Enabled:env.R2_ENABLED,r2AccountId:env.R2_ACCOUNT_ID,
   r2Bucket:env.R2_BUCKET,r2AccessKeyId:env.R2_ACCESS_KEY_ID,r2SecretAccessKey:env.R2_SECRET_ACCESS_KEY,
   braveSearchEnabled:env.BRAVE_SEARCH_ENABLED,braveSearchApiKey:env.BRAVE_SEARCH_API_KEY,
   braveSearchTimeoutMs:env.BRAVE_SEARCH_TIMEOUT_MS,braveSearchMaxTokens:env.BRAVE_SEARCH_MAX_TOKENS,

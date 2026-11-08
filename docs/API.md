@@ -26,7 +26,11 @@ Admin audit history records publication creation, edits and publication actions 
 | GET | /admin/notifications/summary | Notification dispatch counts by category, channel and status | Admin |
 | GET | /notifications/preferences | Current editorial and transactional channel preferences | Yes |
 | PATCH | /notifications/preferences | Update editorial and transactional channel preferences | Yes |
-| GET/POST | /conversations | List/create conversations | Yes |
+| POST | /guest/sessions | Create an ephemeral guest session | No |
+| DELETE | /guest/sessions/current | Revoke current guest session | Guest Bearer |
+| POST | /guest/chat/messages | Guest chat (non-streaming) | Guest Bearer |
+| POST | /guest/chat/messages/stream | Guest chat via SSE | Guest Bearer |
+| GET/POST | /conversations | List/create persisted conversations | Yes |
 | GET | /conversations/:id/messages | List messages owned by user | Yes |
 | DELETE | /conversations/:id | Delete owned conversation | Yes |
 | GET/POST | /memory | List/create memory | Yes |
@@ -45,6 +49,10 @@ Admin audit history records publication creation, edits and publication actions 
 | GET | /library/documents/:id/download-url | Short-lived download URL | Yes |
 | DELETE | /library/documents/:id | Delete document | Yes |
 | GET | /metrics | Prometheus metrics, when enabled | Token |
+
+## Guest Mode
+
+Guest sessions use a separate in-memory context and never write guest messages or conversations to Neon. Tokens are volatile Bearer credentials, expire automatically and can be revoked. Defaults, lifecycle requirements, SSE event schema and horizontal-scaling constraints are documented in [GUEST_MODE.md](./GUEST_MODE.md).
 
 ## Audio contracts
 
@@ -81,7 +89,7 @@ POST /api/v1/audio/transcriptions?languageCode=fr
 }
 ~~~
 
-Both routes require authentication and are protected by the tts / stt security policies. Azure credentials never leave the backend. There is no speech-provider fallback.
+Both routes require authentication and are protected by the tts / stt security policies. User-scoped routes first pass a coarse Arcjet IP gate before Better Auth session lookup, then enforce their route-specific policy after resolving the verified user. Azure credentials never leave the backend. There is no speech-provider fallback.
 
 ## Error contract
 
@@ -117,3 +125,18 @@ Existing clients that omit `provider` continue to use Jɛmɛnipay. Web/Desktop c
 - RevenueCat webhook events are authenticated using the configured authorization header. If HMAC signing is enabled in RevenueCat, configure `REVENUECAT_WEBHOOK_SIGNING_SECRET`; the backend verifies the raw body and timestamp, then re-reads the subscriber's current entitlements from RevenueCat before updating access.
 - Huawei clients must first call `POST /api/v1/billing/huawei-iap/developer-payload` with Aurex authentication and pass the returned signed `developerPayload` to AppGallery IAP. The backend validates that payload against `HUAWEI_IAP_PAYLOAD_SECRET`, verifies the Huawei purchase-data signature and purchase token, and only then associates the subscription with the Aurex account. Raw user IDs are accepted only outside production for local development compatibility.
 - Dodo webhook signatures are verified against the raw request body and the webhook ID/timestamp headers. Provider event IDs are persisted in the idempotency ledger.
+
+
+### Automatic Guest conversation import
+
+| Method | Path | Purpose | Authentication |
+|---|---|---|---|
+| POST | /guest/sessions/current/import | Import the current Guest transcript into the authenticated user's normal conversation history | Better Auth session + X-Guest-Session-Token |
+
+The request body contains a client-generated UUID v4 `transferId` and a `messages` array of up to 20 alternating `user`/`assistant` messages, optionally ending with one unanswered `user` message. Each item requires `content` (1–20,000 characters) and ISO `createdAt`. The merged transcript must equal twice the server-side successful Guest-turn counter (maximum 10 turns), optionally plus one pending final user message; total merged content is capped at 400,000 characters. The backend merges the mobile transcript with its bounded in-memory context to recover a completed answer if the network dropped before the client received `done`.
+
+The Better Auth credential stays in `Authorization: Bearer <session-token>` (or the authenticated `Cookie` header). The raw Guest token is sent separately as `X-Guest-Session-Token: <guest-token>`. This endpoint is user-authenticated and uses the existing authenticated `chat` Arcjet policy.
+
+Success: `{ "conversationId": "guest_<server-derived-id>", "imported": true, "idempotentReplay": false, "messageCount": 2 }`. Repeated requests with the same user and `transferId` return the same conversation with `idempotentReplay: true`. The backend persists one normal conversation and its messages in a single PostgreSQL transaction, then revokes the Guest token. It creates no Guest tables and requires no migration.
+
+Stable business errors include `GUEST_SESSION_REQUIRED`, `GUEST_SESSION_INVALID`, `GUEST_SESSION_EXPIRED`, `GUEST_SESSION_REVOKED`, `GUEST_SESSION_IMPORTED`, `GUEST_CONVERSATION_EMPTY`, `GUEST_IMPORT_INVALID_PAYLOAD`, `GUEST_IMPORT_INVALID_MESSAGE`, `GUEST_IMPORT_INVALID_ORDER`, `GUEST_IMPORT_PAYLOAD_MISMATCH`, `GUEST_IMPORT_PAYLOAD_TOO_LARGE`, `GUEST_GENERATION_IN_PROGRESS`, `GUEST_IMPORT_IN_PROGRESS`, and `GUEST_TRANSFER_CONFLICT`. A persistence failure returns `503 GUEST_IMPORT_PERSISTENCE_FAILED`; the Guest session remains active for retry. See [GUEST_MODE.md](./GUEST_MODE.md) for the complete mobile lifecycle and request example.

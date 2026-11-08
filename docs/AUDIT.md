@@ -127,3 +127,65 @@ Nouvelle table `provider_usage` (quotas et suivi des coûts). **Avant d'applique
 Clés/IDs : `ARCJET_KEY`, `ELEVENLABS_API_KEY` + **voix** (`ELEVENLABS_TTS_VOICE_ID`, choix produit pour le français d'Afrique de l'Ouest), identifiants R2 + création du bucket **privé**, `TAVILY_API_KEY`.
 Décisions : quotas par forfait (valeurs provisoires), politique `ARCJET_FAIL_MODE`, activer ou non le repli TTS Groq (disponibilité du modèle non vérifiée), appel automatique de Wolfram|Alpha dans le chat (non fait : décision produit/coût), nom exact du SDK Gemini à migrer (`@google/genai`), règle de rétention/suppression R2 à la suppression de compte (méthode `LibraryService.removeAllForUser` prête, **non branchée** car la suppression de compte reste un traitement opérateur).
 Informations non fournies sur Saora (date de création, statut juridique…) : signalées comme inconnues dans l'identité d'Aurex.
+
+
+---
+
+## Audit sécurité et Guest Mode — 8 novembre 2026
+
+### Portée et constats
+
+- Architecture NestJS modulaire, Better Auth, Drizzle/Neon, Groq et Arcjet inspectés dans le commit de départ `a2d572f2c934458dc17bc89e6b047cdd531b8474`.
+- Les anciennes corrections consignées ci-dessus ont été considérées comme l'état de référence ; elles n'ont pas été présentées comme des découvertes nouvelles.
+- Le schéma Drizzle et le journal de migrations 0000–0004 ont été inspectés. Guest Mode n'ajoute aucune table et ne nécessite aucune migration.
+- Le pool et les accès Neon restent exclusivement utilisés par les flux authentifiés existants. Les nouveaux fichiers Guest n'importent ni DRIZZLE ni les entités du schéma.
+
+### Renforcement sécurité
+
+1. Les routes protégées par identité utilisateur passent désormais par une politique Arcjet IP `preauth` avant l'appel Better Auth. Cela limite les rafales de cookies/tokens invalides avant toute résolution de session susceptible d'interroger Neon.
+2. La politique dédiée `guest` active Shield, bot detection et une fenêtre de six requêtes par minute par IP. En cas d'indisponibilité Arcjet, le limiteur local applique la politique en mode dégradé.
+3. Les sessions invitées utilisent un jeton aléatoire de 256 bits. Seul son SHA-256 est conservé côté serveur ; la recherche du jeton est indexée en mémoire.
+4. Les sessions ont une durée bornée, peuvent être révoquées, et les générations actives sont interrompues lors d'une révocation, d'une expiration ou de l'arrêt du module.
+5. Les quotas, le nombre de sessions actives, la taille du prompt et le budget de contexte sont configurables et bornés. Le contexte est plafonné par nombre de messages et par caractères.
+6. Les requêtes invitées n'ont pas accès aux endpoints de compte, aux données mémoire, aux conversations persistées, au billing ou aux fonctions audio/recherche.
+
+### Guest Mode livré dans la branche
+
+- `POST /api/v1/guest/sessions` : création d'une session.
+- `DELETE /api/v1/guest/sessions/current` : révocation.
+- `POST /api/v1/guest/chat/messages` : génération non-streamée.
+- `POST /api/v1/guest/chat/messages/stream` : SSE `delta`, `done`, `error`.
+- Groq et l'IdentityService existants sont réutilisés ; le plan appliqué est Free.
+- Contexte conversationnel et compteurs restent exclusivement en mémoire. Aucun message ou conversation invité n'est écrit dans Neon.
+
+### Limites opérationnelles à connaître
+
+- Le stockage est process-local : redémarrage, redéploiement ou remplacement d'instance invalide les sessions et efface leur contexte.
+- En cas de plusieurs réplicas, l'affinité de session (sticky routing) est nécessaire. Aucun Redis ou stockage partagé n'a été introduit.
+- Le client doit garder le jeton en mémoire volatile uniquement et créer une session vierge à chaque nouveau processus de l'application. La révocation à la fermeture est un nettoyage best-effort ; l'expiration serveur couvre les fermetures forcées.
+- La politique Arcjet réelle dépend toujours de la présence de `ARCJET_KEY`, de `ARCJET_MODE=live` et de la configuration Render. Le code de politique et les tests ne prouvent pas que le fournisseur est activé en production.
+
+### Validation
+
+Les tests ajoutés couvrent le cycle de vie des sessions, la révocation, la rétention de contexte, l'absence de consommation de quota en cas d'échec, la concurrence par session, la politique Arcjet Guest et le pré-filtrage IP avant Better Auth. Les résultats CI et le build TypeScript doivent être confirmés après exécution du workflow GitHub Actions de cette branche. Aucun déploiement Render ni migration Neon n'a été lancé.
+
+
+### Contrôle Neon en lecture seule
+
+- Branche Neon de production contrôlée : `br-quiet-art-b5hudmt5`, base `saora`. Les tables attendues des migrations 0003 et 0004 (`announcement_read`, `notification_delivery`, `billing_webhook_event`) sont présentes. Aucune table de session invitée n'existe ni n'est requise.
+- **Écart historique à suivre :** `drizzle.__drizzle_migrations` contient six enregistrements alors que `drizzle/meta/_journal.json` contient cinq entrées. Les enregistrements DB #3 et #4 ont le même hash `6a23ae9435a4ab4c2bc7dbd086fd0e9b6608bba47ff8b155935db7c9531c4a67`; le timestamp de #3 (`1793788923243`) n'apparaît plus dans le journal actuel. Il s'agit d'une répétition historique de la migration 0002, dont les instructions sont idempotentes (`IF NOT EXISTS`). Aucun nettoyage de l'historique de migration n'a été tenté. Une réconciliation dédiée devra préserver l'auditabilité et être testée sur une branche Neon temporaire avant toute intervention.
+- Ces contrôles Neon étaient strictement en lecture seule ; aucune migration, suppression ou modification de données n'a été exécutée.
+
+
+- **Correction Arcjet configuration découverte pendant l'audit :** `.env.example` documentait `ARCJET_FAIL_MODE` et `ARCJET_BOT_ALLOW`, mais le schéma Zod et `envFactory` ne les transmettaient pas à `ConfigService`. De plus, l'absence explicite de `ARCJET_MODE` était validée comme `live` si une clé existait, mais runtime-mappée à `disabled`. Le schéma et la factory transmettent désormais ces paramètres et calculent le même défaut runtime/validation. Un test vérifie le mode implicite, le mode fail-closed et la liste des catégories bot autorisées.
+
+
+## Guest conversation import — 8 November 2026
+
+- Added an authenticated one-shot import endpoint; Better Auth identity is resolved server-side and the Guest token uses a separate `X-Guest-Session-Token` header to avoid clashing with the authenticated `Authorization` credential.
+- Import payload uses the actual Guest chat transcript fields (`role`, `content`, `createdAt`) returned by the existing Guest response. It is structurally validated, chronologically checked, bounded to 10 completed turns / 20 merged messages and 20,000 characters per message; one final unanswered user prompt may also be retained.
+- The mobile's volatile transcript is the source for earlier turns that may have fallen outside the intentionally bounded model context. The import unions it with the server-held context by role and server-issued timestamp, recovering a completed assistant response lost to a network disconnect. It validates the successful-turn count and message order; it does not invent or rewrite message text.
+- The authenticated user ID is never accepted from the request body. The backend derives a stable conversation primary key from the authenticated user ID and transfer UUID. A PostgreSQL primary-key collision provides durable idempotence; the conversation row and all message rows are inserted in one transaction.
+- Guest session import is locked against concurrent generation/revocation. The token is revoked only after transaction commit. Validation and persistence failures release the lock and leave the Guest session usable. Empty conversations are rejected with 422 and remain active.
+- No schema change, migration, new dependency, Neon-side Guest storage, production deployment or Mobile code change was performed by the backend branch.
+- Operational constraint retained: Guest sessions and their server-side context are process-local; multi-replica deployments still require session affinity. Mobile must retain transcript + transfer UUID in RAM until a successful 2xx response and then refresh the authenticated history.
