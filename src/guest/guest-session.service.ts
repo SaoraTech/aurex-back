@@ -79,6 +79,11 @@ export class GuestSessionService implements OnModuleDestroy {
     if (session.used >= limit) throw new HttpException({ code: 'GUEST_QUOTA_EXCEEDED', message: 'Le quota du mode invité est atteint. Créez un compte pour continuer.' }, 429);
     if (options.signal?.aborted) throw new HttpException({ code: 'GENERATION_CANCELLED', message: 'La génération a été annulée.' }, 499);
 
+    const systemInstruction = this.identity.buildSystemInstruction({
+      conversation: { subject: 'general', title: 'Session invitée temporaire' },
+      web: { requested: false, performed: false },
+    });
+
     session.generating = true;
     const controller = new AbortController();
     const abortFromClient = () => controller.abort();
@@ -88,10 +93,6 @@ export class GuestSessionService implements OnModuleDestroy {
     const userTurn: GuestTurn = { role: 'user', content };
     const candidate = [...session.messages, userTurn];
     const history = this.boundedContext(candidate).map(m => ({ role: m.role, content: m.content })) as AiMessage[];
-    const systemInstruction = this.identity.buildSystemInstruction({
-      conversation: { subject: 'general', title: 'Session invitée temporaire' },
-      web: { requested: false, performed: false },
-    });
     let partial = '';
     try {
       const result = await this.ai.generate('free', history, 'groq', {
