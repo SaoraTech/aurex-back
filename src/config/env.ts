@@ -67,6 +67,12 @@ export const EnvSchema = z.object({
   PLAN_PRICES_JSON: z.string().default('{"free":0,"plus":5000,"pro":10000,"plus_promo":1500,"pro_promo":3000}'),
   TRUSTED_ORIGINS: z.string().optional().default(''), CORS_ORIGIN: z.string().optional().default(''),
   TRUSTED_PROXIES: z.string().optional().default(''),
+  GUEST_SESSION_TTL_SECONDS: z.coerce.number().int().min(300).max(86400).default(43200),
+  GUEST_SESSION_MAX_LIFETIME_SECONDS: z.coerce.number().int().min(300).max(86400).default(43200),
+  GUEST_MESSAGE_LIMIT: z.coerce.number().int().min(1).max(100).default(10),
+  GUEST_CONTEXT_MESSAGES: z.coerce.number().int().min(2).max(40).default(20),
+  GUEST_MAX_PROMPT_CHARS: z.coerce.number().int().min(100).max(20000).default(12000),
+  GUEST_MAX_ACTIVE_SESSIONS: z.coerce.number().int().min(100).max(100000).default(20000),
 }).superRefine((v,ctx)=>{
   const need=(cond:boolean,path:string,message:string)=>{if(!cond)ctx.addIssue({code:'custom',path:[path],message});};
   if(v.AZURE_SPEECH_ENABLED==='true'){
