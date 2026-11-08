@@ -14,6 +14,7 @@ interface GuestSession {
   messages: GuestTurn[];
   used: number;
   generating: boolean;
+  controller?: AbortController;
 }
 export interface GuestChatInput { content: string }
 export interface GuestStreamOptions { signal?: AbortSignal; onToken?: (delta: string) => void }
@@ -34,7 +35,7 @@ export class GuestSessionService implements OnModuleDestroy {
 
   create() {
     this.cleanup();
-    const maxSessions = this.number('guestMaxActiveSessions', 20_000, 100, 100_000);
+    const maxSessions = this.number('guestMaxActiveSessions', 2_000, 100, 10_000);
     if (this.sessions.size >= maxSessions) throw new HttpException({ code: 'GUEST_CAPACITY_REACHED', message: 'Le mode invité est momentanément saturé.' }, 503);
     const token = randomBytes(32).toString('base64url');
     const now = Date.now();
@@ -63,6 +64,7 @@ export class GuestSessionService implements OnModuleDestroy {
 
   revoke(authorization?: string) {
     const session = this.authenticate(authorization);
+    session.controller?.abort();
     this.sessions.delete(session.id);
     this.tokenIndex.delete(session.tokenHash);
     return { revoked: true };
@@ -78,9 +80,14 @@ export class GuestSessionService implements OnModuleDestroy {
     if (options.signal?.aborted) throw new HttpException({ code: 'GENERATION_CANCELLED', message: 'La génération a été annulée.' }, 499);
 
     session.generating = true;
+    const controller = new AbortController();
+    const abortFromClient = () => controller.abort();
+    if (options.signal?.aborted) controller.abort();
+    else options.signal?.addEventListener('abort', abortFromClient, { once: true });
+    session.controller = controller;
     const userTurn: GuestTurn = { role: 'user', content };
     const candidate = [...session.messages, userTurn];
-    const history = candidate.slice(-this.contextWindow()).map(m => ({ role: m.role, content: m.content })) as AiMessage[];
+    const history = this.boundedContext(candidate).map(m => ({ role: m.role, content: m.content })) as AiMessage[];
     const systemInstruction = this.identity.buildSystemInstruction({
       conversation: { subject: 'general', title: 'Session invitée temporaire' },
       web: { requested: false, performed: false },
@@ -89,10 +96,11 @@ export class GuestSessionService implements OnModuleDestroy {
     try {
       const result = await this.ai.generate('free', history, 'groq', {
         systemInstruction,
-        signal: options.signal,
+        signal: controller.signal,
         ...(options.onToken ? { onToken: (delta: string) => { partial += delta; options.onToken?.(delta); } } : {}),
       });
-      session.messages = [...candidate, { role: 'assistant', content: result.text }].slice(-this.contextWindow());
+      if (controller.signal.aborted || this.sessions.get(session.id) !== session) throw new HttpException({ code: 'GENERATION_CANCELLED', message: 'La session invitée a été interrompue.' }, 499);
+      session.messages = this.boundedContext([...candidate, { role: 'assistant', content: result.text }]);
       session.used += 1;
       session.expiresAt = Math.min(session.createdAt + this.number('guestSessionMaxLifetimeSeconds', 43_200, 300, 86_400) * 1000,
         Date.now() + this.number('guestSessionTtlSeconds', 43_200, 300, 86_400) * 1000);
@@ -105,7 +113,9 @@ export class GuestSessionService implements OnModuleDestroy {
     } finally {
       // Never retain a failed/partial generation as conversation history.
       session.generating = false;
-      if (options.signal?.aborted && partial) this.logger.debug({ msg: 'guest_stream_cancelled', sessionId: session.id });
+      session.controller = undefined;
+      options.signal?.removeEventListener('abort', abortFromClient);
+      if (controller.signal.aborted && partial) this.logger.debug({ msg: 'guest_stream_cancelled', sessionId: session.id });
     }
   }
 
@@ -116,9 +126,20 @@ export class GuestSessionService implements OnModuleDestroy {
   }
   private messageLimit() { return this.number('guestMessageLimit', 10, 1, 100); }
   private contextWindow() { return this.number('guestContextMessages', 20, 2, 40); }
+  private boundedContext(messages: GuestTurn[]) {
+    const maxChars = this.number('guestMaxContextChars', 24_000, 1_000, 50_000);
+    const selected: GuestTurn[] = [];
+    let chars = 0;
+    for (const turn of messages.slice(-this.contextWindow()).reverse()) {
+      if (chars + turn.content.length > maxChars) break;
+      selected.push(turn);
+      chars += turn.content.length;
+    }
+    return selected.reverse();
+  }
   private maxPromptChars() { return this.number('guestMaxPromptChars', 12_000, 100, 20_000); }
   private cleanup() {
     const now = Date.now();
-    for (const [id, session] of this.sessions) if (session.expiresAt <= now) { this.sessions.delete(id); this.tokenIndex.delete(session.tokenHash); }
+    for (const [id, session] of this.sessions) if (session.expiresAt <= now) { session.controller?.abort(); this.sessions.delete(id); this.tokenIndex.delete(session.tokenHash); }
   }
 }
