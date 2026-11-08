@@ -178,3 +178,14 @@ Les tests ajoutés couvrent le cycle de vie des sessions, la révocation, la ré
 
 
 - **Correction Arcjet configuration découverte pendant l'audit :** `.env.example` documentait `ARCJET_FAIL_MODE` et `ARCJET_BOT_ALLOW`, mais le schéma Zod et `envFactory` ne les transmettaient pas à `ConfigService`. De plus, l'absence explicite de `ARCJET_MODE` était validée comme `live` si une clé existait, mais runtime-mappée à `disabled`. Le schéma et la factory transmettent désormais ces paramètres et calculent le même défaut runtime/validation. Un test vérifie le mode implicite, le mode fail-closed et la liste des catégories bot autorisées.
+
+
+## Guest conversation import — 8 November 2026
+
+- Added an authenticated one-shot import endpoint; Better Auth identity is resolved server-side and the Guest token uses a separate `X-Guest-Session-Token` header to avoid clashing with the authenticated `Authorization` credential.
+- Import payload uses the actual Guest chat transcript fields (`role`, `content`, `createdAt`) returned by the existing Guest response. It is structurally validated, chronologically checked, bounded to 10 completed turns / 20 messages and 20,000 characters per message.
+- The mobile's volatile transcript is the source for earlier turns that may have fallen outside the intentionally bounded model context. The import validates the number of successful turns and the suffix still retained server-side; it does not invent or rewrite message text.
+- The authenticated user ID is never accepted from the request body. The backend derives a stable conversation primary key from the authenticated user ID and transfer UUID. A PostgreSQL primary-key collision provides durable idempotence; the conversation row and all message rows are inserted in one transaction.
+- Guest session import is locked against concurrent generation/revocation. The token is revoked only after transaction commit. Validation and persistence failures release the lock and leave the Guest session usable. Empty conversations are rejected with 422 and remain active.
+- No schema change, migration, new dependency, Neon-side Guest storage, production deployment or Mobile code change was performed by the backend branch.
+- Operational constraint retained: Guest sessions and their server-side context are process-local; multi-replica deployments still require session affinity. Mobile must retain transcript + transfer UUID in RAM until a successful 2xx response and then refresh the authenticated history.

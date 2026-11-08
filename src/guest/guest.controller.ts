@@ -1,18 +1,33 @@
-import { Body, Controller, Delete, Headers, Post, Res, HttpException } from '@nestjs/common';
+import { Body, Controller, Delete, Headers, Post, Res, HttpException, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
-import { ApiTags } from '@nestjs/swagger';
-import { IsString, MaxLength, MinLength } from 'class-validator';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsDateString, IsIn, IsString, IsUUID, MaxLength, MinLength, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
+import { CurrentUserId } from '../common/user.decorator';
+import { RequireUserGuard } from '../auth/require-user.guard';
 import { Protect } from '../security/protect.decorator';
 import { GuestSessionService } from './guest-session.service';
+import { GuestImportService } from './guest-import.service';
 
 class GuestMessageDto {
   @IsString() @MinLength(1) @MaxLength(20_000) content!: string;
+}
+class GuestImportMessageDto {
+  @IsIn(['user', 'assistant']) role!: 'user' | 'assistant';
+  @IsString() @MinLength(1) @MaxLength(20_000) content!: string;
+  @IsDateString() createdAt!: string;
+}
+class GuestImportDto {
+  @IsUUID('4') transferId!: string;
+  @IsArray() @ArrayMinSize(2) @ArrayMaxSize(20)
+  @ValidateNested({ each: true }) @Type(() => GuestImportMessageDto)
+  messages!: GuestImportMessageDto[];
 }
 
 @ApiTags('guest')
 @Controller('guest')
 export class GuestController {
-  constructor(private readonly guests: GuestSessionService) {}
+  constructor(private readonly guests: GuestSessionService, private readonly imports: GuestImportService) {}
 
   @Post('sessions')
   @Protect('guest')
@@ -21,6 +36,18 @@ export class GuestController {
   @Delete('sessions/current')
   @Protect('guest')
   revokeSession(@Headers('authorization') authorization?: string) { return this.guests.revoke(authorization); }
+
+  @Post('sessions/current/import')
+  @UseGuards(RequireUserGuard)
+  @Protect('chat')
+  @ApiBearerAuth()
+  importCurrentSession(
+    @Headers('x-guest-session-token') guestToken: string | undefined,
+    @CurrentUserId() userId: string,
+    @Body() dto: GuestImportDto,
+  ) {
+    return this.imports.importConversation(guestToken ? `Bearer ${guestToken}` : undefined, userId, dto);
+  }
 
   @Post('chat/messages')
   @Protect('guest')

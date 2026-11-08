@@ -28,6 +28,8 @@ describe('GuestSessionService', () => {
     const created = service.create();
     const first = await service.send(`Bearer ${created.token}`, { content: 'Bonjour' });
     expect(first.quota).toEqual({ limit: 10, used: 1, remaining: 9 });
+    expect(first.userMessage).toMatchObject({ role: 'user', content: 'Bonjour' });
+    expect(first.message.createdAt).toBeDefined();
     await service.send(`Bearer ${created.token}`, { content: 'Continue' });
     expect(ai.generate).toHaveBeenCalledTimes(2);
     const secondHistory = ai.generate.mock.calls[1][1];
@@ -64,6 +66,24 @@ describe('GuestSessionService', () => {
     const created = service.create();
     expect(service.revoke(`Bearer ${created.token}`)).toEqual({ revoked: true });
     expect(() => service.authenticate(`Bearer ${created.token}`)).toThrow();
+  });
+
+  it('locks a completed conversation for import and revokes only after commit confirmation', async () => {
+    const created = service.create();
+    await service.send(`Bearer ${created.token}`, { content: 'Question' });
+    const snapshot = service.beginImport(`Bearer ${created.token}`);
+    expect(snapshot.messages.map(({ role }) => role)).toEqual(['user', 'assistant']);
+    await expect(service.send(`Bearer ${created.token}`, { content: 'Encore' })).rejects.toMatchObject({ status: 409 });
+    service.releaseImport(snapshot.sessionId);
+    expect(service.authenticate(`Bearer ${created.token}`).id).toBe(created.sessionId);
+    const second = service.beginImport(`Bearer ${created.token}`);
+    service.completeImport(second.sessionId);
+    expect(() => service.authenticate(`Bearer ${created.token}`)).toThrow();
+  });
+
+  it('rejects empty conversations and prevents overlapping imports', () => {
+    const created = service.create();
+    expect(() => service.beginImport(`Bearer ${created.token}`)).toThrow();
   });
 
   it('rejects overlapping generations in the same session', async () => {

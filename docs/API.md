@@ -125,3 +125,18 @@ Existing clients that omit `provider` continue to use Jɛmɛnipay. Web/Desktop c
 - RevenueCat webhook events are authenticated using the configured authorization header. If HMAC signing is enabled in RevenueCat, configure `REVENUECAT_WEBHOOK_SIGNING_SECRET`; the backend verifies the raw body and timestamp, then re-reads the subscriber's current entitlements from RevenueCat before updating access.
 - Huawei clients must first call `POST /api/v1/billing/huawei-iap/developer-payload` with Aurex authentication and pass the returned signed `developerPayload` to AppGallery IAP. The backend validates that payload against `HUAWEI_IAP_PAYLOAD_SECRET`, verifies the Huawei purchase-data signature and purchase token, and only then associates the subscription with the Aurex account. Raw user IDs are accepted only outside production for local development compatibility.
 - Dodo webhook signatures are verified against the raw request body and the webhook ID/timestamp headers. Provider event IDs are persisted in the idempotency ledger.
+
+
+### Automatic Guest conversation import
+
+| Method | Path | Purpose | Authentication |
+|---|---|---|---|
+| POST | /guest/sessions/current/import | Import the current Guest transcript into the authenticated user's normal conversation history | Better Auth session + X-Guest-Session-Token |
+
+The request body contains a client-generated UUID v4 `transferId` and a `messages` array of 2–20 alternating `user`/`assistant` messages. Each item requires `content` (1–20,000 characters) and ISO `createdAt`. The number of messages must equal twice the server-side successful Guest-turn counter (maximum 10 turns); total transcript content is capped at 400,000 characters.
+
+The Better Auth credential stays in `Authorization: Bearer <session-token>` (or the authenticated `Cookie` header). The raw Guest token is sent separately as `X-Guest-Session-Token: <guest-token>`. This endpoint is user-authenticated and uses the existing authenticated `chat` Arcjet policy.
+
+Success: `{ "conversationId": "guest_<server-derived-id>", "imported": true, "idempotentReplay": false, "messageCount": 2 }`. Repeated requests with the same user and `transferId` return the same conversation with `idempotentReplay: true`. The backend persists one normal conversation and its messages in a single PostgreSQL transaction, then revokes the Guest token. It creates no Guest tables and requires no migration.
+
+Stable business errors include `GUEST_SESSION_REQUIRED`, `GUEST_SESSION_INVALID`, `GUEST_SESSION_EXPIRED`, `GUEST_SESSION_REVOKED`, `GUEST_CONVERSATION_EMPTY`, `GUEST_IMPORT_INVALID_MESSAGE`, `GUEST_IMPORT_INVALID_ORDER`, `GUEST_IMPORT_PAYLOAD_MISMATCH`, `GUEST_IMPORT_PAYLOAD_TOO_LARGE`, `GUEST_GENERATION_IN_PROGRESS`, `GUEST_IMPORT_IN_PROGRESS`, and `GUEST_TRANSFER_CONFLICT`. A persistence failure returns `503 GUEST_IMPORT_PERSISTENCE_FAILED`; the Guest session remains active for retry. See [GUEST_MODE.md](./GUEST_MODE.md) for the complete mobile lifecycle and request example.

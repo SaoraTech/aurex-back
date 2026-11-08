@@ -63,6 +63,7 @@ async function bootstrap() {
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: [
       'Authorization',
+      'X-Guest-Session-Token',
       'Content-Type',
       'Idempotency-Key',
       'X-Request-Id',
