@@ -99,7 +99,7 @@ Request body:
 }
 ```
 
-The payload is the exact local transcript: 2–20 messages, alternating `user` then `assistant`, one pair for each successfully completed Guest turn (maximum 10 turns). Each content is 1–20,000 characters; the total content budget is 400,000 characters. Timestamps must be ISO date strings, chronological, and fall within the Guest session lifetime. The backend validates the message count against the server-side successful-turn counter and verifies the suffix still present in its bounded ephemeral context. Older messages may be present only in the mobile's volatile transcript because the model context is intentionally bounded.
+The payload is the local transcript (0–20 messages), alternating `user` then `assistant`, with an optional final unanswered `user` message. The merged transcript must contain exactly two messages per successfully completed Guest turn (maximum 10 turns), plus at most one pending final user message. Each content is 1–20,000 characters; the total content budget is 400,000 characters. Timestamps must be ISO date strings, chronological, and fall within the Guest session lifetime. The backend validates the message count against the server-side successful-turn counter and merges the mobile transcript with the bounded server context. This recovers a completed assistant response if the network dropped before the mobile received the SSE `done` event. Older messages may be present only in the mobile's volatile transcript because the model context is intentionally bounded.
 
 Success response:
 
@@ -119,7 +119,7 @@ The backend locks the Guest session during validation/import. It revokes the Gue
 ### Mobile transfer lifecycle
 
 1. Keep the Guest token and transcript in volatile memory. Do not put the Guest token in AsyncStorage, SecureStore, Keychain, cookies or backups.
-2. For each successful Guest turn, append the `userMessage` and `message` objects returned by the non-streaming response or the SSE `done` event. Preserve their exact `role`, `content` and `createdAt` fields.
+2. For each completed Guest turn, append the `userMessage` and `message` objects returned by the non-streaming response or the SSE `done` event. Preserve their exact `role`, `content` and `createdAt` fields. Do not commit streamed `delta` fragments as complete messages; if `done` is lost, send the last local transcript and let the backend merge its retained completed response.
 3. Generate one UUID v4 `transferId` when the user starts account creation/sign-in. Keep that same ID and transcript while retrying.
 4. After Better Auth succeeds, call the import endpoint with the authenticated session credential and `X-Guest-Session-Token`.
 5. On any network error or non-2xx response, retain the transcript and transfer ID in memory and retry; do not clear the Guest state.

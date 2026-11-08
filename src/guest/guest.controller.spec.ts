@@ -45,7 +45,7 @@ describe('GuestController', () => {
     const guests: any = {};
     const imports: any = { importConversation: jest.fn().mockResolvedValue({ conversationId: 'persisted-id' }) };
     const controller = new GuestController(guests as GuestSessionService, imports as GuestImportService);
-    const result = await controller.importCurrentSession('Bearer guest-token', 'authenticated-user-id', {
+    const result = await controller.importCurrentSession('guest-token', 'authenticated-user-id', {
       transferId: 'd2b9b9aa-3f24-4a63-b9de-9c3c9d5c9d7d',
       messages: [
         { role: 'user', content: 'Q', createdAt: '2026-11-08T10:00:00.000Z' },

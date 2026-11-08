@@ -6,9 +6,14 @@ import { conversation, message } from '../db/schema';
 import { newId } from '../common/ids';
 import { GuestImportSnapshot, GuestSessionService } from './guest-session.service';
 
+export interface GuestImportMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  createdAt: string;
+}
 export interface GuestImportInput {
   transferId: string;
-  messages: Array<{ role: 'user' | 'assistant'; content: string; createdAt: string }>;
+  messages: GuestImportMessage[];
 }
 
 const isUniqueViolation = (error: unknown) =>
@@ -34,10 +39,11 @@ export class GuestImportService {
 
     const snapshot = this.guests.beginImport(authorization);
     try {
-      this.assertPayload(input.messages, snapshot);
-      const firstAt = new Date(input.messages[0].createdAt);
-      const lastAt = new Date(input.messages[input.messages.length - 1].createdAt);
-      const title = input.messages[0].content.replace(/\s+/g, ' ').trim().slice(0, 70) || 'Conversation importée';
+      const messages = this.mergeAndValidate(input.messages, snapshot);
+      const firstAt = new Date(messages[0].createdAt);
+      const lastAt = new Date(messages[messages.length - 1].createdAt);
+      const title = messages.find(turn => turn.role === 'user')!.content.replace(/\s+/g, ' ').trim().slice(0, 70) || 'Conversation importée';
+      const metadata = new Map(snapshot.messages.map(turn => [this.messageKey(turn), turn]));
 
       await this.db.transaction(async (tx: any) => {
         await tx.insert(conversation).values({
@@ -49,8 +55,8 @@ export class GuestImportService {
           createdAt: firstAt,
           updatedAt: lastAt,
         });
-        await tx.insert(message).values(input.messages.map((turn, index) => {
-          const authoritative = snapshot.messages[index - Math.max(0, input.messages.length - snapshot.messages.length)];
+        await tx.insert(message).values(messages.map(turn => {
+          const authoritative = metadata.get(this.messageKey(turn));
           return {
             id: newId(),
             conversationId,
@@ -72,7 +78,7 @@ export class GuestImportService {
 
       // The Guest token is revoked only after Neon confirms the transaction commit.
       this.guests.completeImport(snapshot.sessionId);
-      return { conversationId, imported: true, idempotentReplay: false, messageCount: input.messages.length };
+      return { conversationId, imported: true, idempotentReplay: false, messageCount: messages.length };
     } catch (error) {
       this.guests.releaseImport(snapshot.sessionId);
       if (isUniqueViolation(error)) {
@@ -90,50 +96,82 @@ export class GuestImportService {
     }
   }
 
-  private assertPayload(messages: GuestImportInput['messages'], snapshot: GuestImportSnapshot) {
-    if (!Array.isArray(messages) || messages.length < 2 || snapshot.used < 1) {
-      throw new HttpException({ code: 'GUEST_CONVERSATION_EMPTY', message: 'Aucun échange terminé à transférer.' }, 422);
+  /**
+   * The mobile transcript is the durable-in-process source for older turns. The Guest service keeps
+   * only a bounded model-context suffix. Unioning by role + server-issued timestamp recovers a
+   * completed assistant answer if the network dropped before the mobile received the SSE done event.
+   */
+  private mergeAndValidate(payload: GuestImportMessage[], snapshot: GuestImportSnapshot): GuestImportMessage[] {
+    if (!Array.isArray(payload)) {
+      throw new HttpException({ code: 'GUEST_IMPORT_INVALID_PAYLOAD', message: 'Le contenu du transfert est invalide.' }, 400);
     }
-    if (snapshot.used > 10 || messages.length > 20 || messages.length !== snapshot.used * 2) {
-      throw new HttpException({ code: 'GUEST_IMPORT_PAYLOAD_MISMATCH', message: 'Le nombre de messages ne correspond pas aux échanges Guest terminés.' }, 400);
+    if (snapshot.used > 10 || payload.length > 20 || snapshot.messages.length > 20) {
+      throw new HttpException({ code: 'GUEST_IMPORT_PAYLOAD_TOO_LARGE', message: 'La conversation dépasse les limites autorisées.' }, 413);
     }
-    let totalChars = 0;
-    let previousTimestamp = 0;
+
+    const byKey = new Map<string, GuestImportMessage>();
     const now = Date.now();
-    for (let index = 0; index < messages.length; index += 1) {
-      const item = messages[index];
+    let totalChars = 0;
+    const add = (item: GuestImportMessage) => {
       const timestamp = Date.parse(item?.createdAt ?? '');
       if (!item || !['user', 'assistant'].includes(item.role) ||
           typeof item.content !== 'string' || item.content.length < 1 || item.content.length > 20_000 ||
           !Number.isFinite(timestamp) || timestamp < snapshot.createdAt - 1_000 ||
-          timestamp > Math.min(snapshot.expiresAt + 60_000, now + 60_000) || timestamp < previousTimestamp) {
+          timestamp > Math.min(snapshot.expiresAt + 60_000, now + 60_000)) {
         throw new HttpException({ code: 'GUEST_IMPORT_INVALID_MESSAGE', message: 'Un message du transfert est invalide.' }, 400);
       }
-      if (item.role !== (index % 2 === 0 ? 'user' : 'assistant')) {
+      totalChars += item.content.length;
+      const key = this.messageKey(item);
+      const existing = byKey.get(key);
+      if (existing && existing.content !== item.content) {
+        throw new HttpException({ code: 'GUEST_IMPORT_PAYLOAD_MISMATCH', message: 'Un message fourni ne correspond pas à la session invitée.' }, 400);
+      }
+      if (!existing) byKey.set(key, { role: item.role, content: item.content, createdAt: new Date(timestamp).toISOString() });
+    };
+
+    // The mobile transcript must preserve its own order; the server snapshot may start mid-thread.
+    let previousClientTimestamp = 0;
+    for (let index = 0; index < payload.length; index += 1) {
+      const item = payload[index];
+      const timestamp = Date.parse(item?.createdAt ?? '');
+      if (item?.role !== (index % 2 === 0 ? 'user' : 'assistant') || !Number.isFinite(timestamp) || timestamp < previousClientTimestamp) {
         throw new HttpException({ code: 'GUEST_IMPORT_INVALID_ORDER', message: 'L’ordre des messages est invalide.' }, 400);
       }
-      totalChars += item.content.length;
-      previousTimestamp = timestamp;
+      previousClientTimestamp = timestamp;
     }
-    if (totalChars > 400_000) {
+    // Prefer server-held copies for the suffix and merge the mobile-held older transcript.
+    for (const item of snapshot.messages) add(item);
+    for (const item of payload) add(item);
+    if (totalChars > 800_000) {
       throw new HttpException({ code: 'GUEST_IMPORT_PAYLOAD_TOO_LARGE', message: 'La conversation dépasse la taille autorisée.' }, 413);
     }
 
-    // Verify the suffix still retained by the ephemeral server context. Older turns are supplied by
-    // the mobile's volatile transcript because the model context may have been truncated by design.
-    const suffix = snapshot.messages;
-    if (suffix.length > messages.length) {
-      throw new HttpException({ code: 'GUEST_IMPORT_PAYLOAD_MISMATCH', message: 'La conversation fournie ne correspond pas à la session invitée.' }, 400);
+    const merged = [...byKey.values()].sort((a, b) =>
+      Date.parse(a.createdAt) - Date.parse(b.createdAt) ||
+      (a.role === 'user' ? -1 : 1),
+    );
+    if (!merged.length) {
+      throw new HttpException({ code: 'GUEST_CONVERSATION_EMPTY', message: 'Aucun échange à transférer.' }, 422);
     }
-    const offset = messages.length - suffix.length;
-    for (let index = 0; index < suffix.length; index += 1) {
-      const incoming = messages[offset + index];
-      const stored = suffix[index];
-      if (incoming.role !== stored.role || incoming.content !== stored.content ||
-          Date.parse(incoming.createdAt) !== Date.parse(stored.createdAt)) {
-        throw new HttpException({ code: 'GUEST_IMPORT_PAYLOAD_MISMATCH', message: 'Les derniers messages ne correspondent pas à la session invitée.' }, 400);
+    if (merged.length > 20) {
+      throw new HttpException({ code: 'GUEST_IMPORT_PAYLOAD_TOO_LARGE', message: 'La conversation dépasse 20 messages.' }, 413);
+    }
+
+    const completedMessages = snapshot.used * 2;
+    const hasPendingUserTurn = merged.length === completedMessages + 1 && merged[merged.length - 1].role === 'user';
+    if (merged.length !== completedMessages && !hasPendingUserTurn) {
+      throw new HttpException({ code: 'GUEST_IMPORT_PAYLOAD_MISMATCH', message: 'Le nombre de messages ne correspond pas aux échanges Guest terminés.' }, 400);
+    }
+    for (let index = 0; index < merged.length; index += 1) {
+      if (merged[index].role !== (index % 2 === 0 ? 'user' : 'assistant')) {
+        throw new HttpException({ code: 'GUEST_IMPORT_INVALID_ORDER', message: 'L’ordre des messages est invalide.' }, 400);
       }
     }
+    return merged;
+  }
+
+  private messageKey(message: Pick<GuestImportMessage, 'role' | 'createdAt'>) {
+    return message.role + ':' + Date.parse(message.createdAt);
   }
 
   private conversationId(userId: string, transferId: string) {

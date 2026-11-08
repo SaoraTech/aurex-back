@@ -19,7 +19,7 @@ class GuestImportMessageDto {
 }
 class GuestImportDto {
   @IsUUID('4') transferId!: string;
-  @IsArray() @ArrayMinSize(2) @ArrayMaxSize(20)
+  @IsArray() @ArrayMaxSize(20)
   @ValidateNested({ each: true }) @Type(() => GuestImportMessageDto)
   messages!: GuestImportMessageDto[];
 }

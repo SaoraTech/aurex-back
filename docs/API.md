@@ -133,7 +133,7 @@ Existing clients that omit `provider` continue to use Jɛmɛnipay. Web/Desktop c
 |---|---|---|---|
 | POST | /guest/sessions/current/import | Import the current Guest transcript into the authenticated user's normal conversation history | Better Auth session + X-Guest-Session-Token |
 
-The request body contains a client-generated UUID v4 `transferId` and a `messages` array of 2–20 alternating `user`/`assistant` messages. Each item requires `content` (1–20,000 characters) and ISO `createdAt`. The number of messages must equal twice the server-side successful Guest-turn counter (maximum 10 turns); total transcript content is capped at 400,000 characters.
+The request body contains a client-generated UUID v4 `transferId` and a `messages` array of up to 20 alternating `user`/`assistant` messages, optionally ending with one unanswered `user` message. Each item requires `content` (1–20,000 characters) and ISO `createdAt`. The merged transcript must equal twice the server-side successful Guest-turn counter (maximum 10 turns), optionally plus one pending final user message; total merged content is capped at 400,000 characters. The backend merges the mobile transcript with its bounded in-memory context to recover a completed answer if the network dropped before the client received `done`.
 
 The Better Auth credential stays in `Authorization: Bearer <session-token>` (or the authenticated `Cookie` header). The raw Guest token is sent separately as `X-Guest-Session-Token: <guest-token>`. This endpoint is user-authenticated and uses the existing authenticated `chat` Arcjet policy.
 

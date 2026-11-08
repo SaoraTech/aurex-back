@@ -72,6 +72,31 @@ describe('GuestImportService', () => {
     expect(db.transaction).toHaveBeenCalledTimes(1);
   });
 
+  it('recovers an assistant response that was committed server-side but lost on the network', async () => {
+    const partial = payload();
+    partial.messages = [partial.messages[0]];
+    const result = await service.importConversation('Bearer token', 'user-1', partial);
+    expect(result).toMatchObject({ imported: true, messageCount: 2 });
+    expect(rows.messages.map((item: any) => item.content)).toEqual(['Question', 'Réponse']);
+  });
+
+  it('preserves a final user prompt when its Guest generation did not complete', async () => {
+    const pending = payload();
+    pending.messages.push({ role: 'user', content: 'Nouvelle question', createdAt: '2026-11-08T10:00:03.000Z' });
+    const result = await service.importConversation('Bearer token', 'user-1', pending);
+    expect(result).toMatchObject({ imported: true, messageCount: 3 });
+    expect(rows.messages.map((item: any) => item.role)).toEqual(['user', 'assistant', 'user']);
+  });
+
+  it('rejects an empty Guest transcript without persisting or revoking', async () => {
+    guests.beginImport.mockReturnValueOnce({ ...snapshot, used: 0, messages: [] });
+    await expect(service.importConversation('Bearer token', 'user-1', { transferId: payload().transferId, messages: [] }))
+      .rejects.toMatchObject({ status: 422 });
+    expect(db.transaction).not.toHaveBeenCalled();
+    expect(guests.releaseImport).toHaveBeenCalledWith('guest-session-id');
+    expect(guests.completeImport).not.toHaveBeenCalled();
+  });
+
   it('rejects malformed message order without creating a conversation', async () => {
     const invalid = payload();
     invalid.messages[0].role = 'assistant';
