@@ -44,6 +44,22 @@ describe('GuestSessionService', () => {
     expect(ai.generate.mock.calls[1][1]).toEqual([{ role: 'user', content: 'Nouvel essai' }]);
   });
 
+  it('expires and removes sessions when their absolute expiry is reached', () => {
+    const created = service.create();
+    const session = (service as any).sessions.get(created.sessionId);
+    session.expiresAt = Date.now() - 1;
+    expect(() => service.authenticate(`Bearer ${created.token}`)).toThrow();
+    expect((service as any).sessions.size).toBe(0);
+    expect((service as any).tokenIndex.size).toBe(0);
+  });
+
+  it('rejects turns after the session quota is exhausted', async () => {
+    const created = service.create();
+    (service as any).sessions.get(created.sessionId).used = 10;
+    await expect(service.send(`Bearer ${created.token}`, { content: 'Encore une question' })).rejects.toMatchObject({ status: 429 });
+    expect(ai.generate).not.toHaveBeenCalled();
+  });
+
   it('revokes a session immediately', () => {
     const created = service.create();
     expect(service.revoke(`Bearer ${created.token}`)).toEqual({ revoked: true });
