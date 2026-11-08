@@ -168,3 +168,10 @@ Informations non fournies sur Saora (date de création, statut juridique…) : s
 ### Validation
 
 Les tests ajoutés couvrent le cycle de vie des sessions, la révocation, la rétention de contexte, l'absence de consommation de quota en cas d'échec, la concurrence par session, la politique Arcjet Guest et le pré-filtrage IP avant Better Auth. Les résultats CI et le build TypeScript doivent être confirmés après exécution du workflow GitHub Actions de cette branche. Aucun déploiement Render ni migration Neon n'a été lancé.
+
+
+### Contrôle Neon en lecture seule
+
+- Branche Neon de production contrôlée : `br-quiet-art-b5hudmt5`, base `saora`. Les tables attendues des migrations 0003 et 0004 (`announcement_read`, `notification_delivery`, `billing_webhook_event`) sont présentes. Aucune table de session invitée n'existe ni n'est requise.
+- **Écart historique à suivre :** `drizzle.__drizzle_migrations` contient six enregistrements alors que `drizzle/meta/_journal.json` contient cinq entrées. Les enregistrements DB #3 et #4 ont le même hash `6a23ae9435a4ab4c2bc7dbd086fd0e9b6608bba47ff8b155935db7c9531c4a67`; le timestamp de #3 (`1793788923243`) n'apparaît plus dans le journal actuel. Il s'agit d'une répétition historique de la migration 0002, dont les instructions sont idempotentes (`IF NOT EXISTS`). Aucun nettoyage de l'historique de migration n'a été tenté. Une réconciliation dédiée devra préserver l'auditabilité et être testée sur une branche Neon temporaire avant toute intervention.
+- Ces contrôles Neon étaient strictement en lecture seule ; aucune migration, suppression ou modification de données n'a été exécutée.
