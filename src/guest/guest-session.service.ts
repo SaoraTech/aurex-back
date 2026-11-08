@@ -15,13 +15,14 @@ interface GuestSession {
   used: number;
   generating: boolean;
 }
-export interface GuestChatInput { content: string; webSearch?: 'off' | 'on' | 'auto' }
+export interface GuestChatInput { content: string }
 export interface GuestStreamOptions { signal?: AbortSignal; onToken?: (delta: string) => void }
 
 @Injectable()
 export class GuestSessionService implements OnModuleDestroy {
   private readonly logger = new Logger(GuestSessionService.name);
   private readonly sessions = new Map<string, GuestSession>();
+  private readonly tokenIndex = new Map<string, string>();
   private cleanupTimer?: NodeJS.Timeout;
 
   constructor(private readonly config: ConfigService, private readonly ai: AiOrchestratorService, private readonly identity: IdentityService) {
@@ -29,7 +30,7 @@ export class GuestSessionService implements OnModuleDestroy {
     this.cleanupTimer.unref?.();
   }
 
-  onModuleDestroy() { if (this.cleanupTimer) clearInterval(this.cleanupTimer); this.sessions.clear(); }
+  onModuleDestroy() { if (this.cleanupTimer) clearInterval(this.cleanupTimer); this.sessions.clear(); this.tokenIndex.clear(); }
 
   create() {
     this.cleanup();
@@ -43,6 +44,7 @@ export class GuestSessionService implements OnModuleDestroy {
       messages: [], used: 0, generating: false,
     };
     this.sessions.set(session.id, session);
+    this.tokenIndex.set(session.tokenHash, session.id);
     return { sessionId: session.id, token, tokenType: 'Bearer', expiresAt: new Date(session.expiresAt).toISOString(), quota: { messages: this.messageLimit(), used: 0 } };
   }
 
@@ -51,17 +53,18 @@ export class GuestSessionService implements OnModuleDestroy {
     if (!match) throw new UnauthorizedException({ code: 'GUEST_SESSION_REQUIRED', message: 'Session invitée requise.' });
     const tokenHash = this.hash(match[1]);
     const now = Date.now();
-    for (const session of this.sessions.values()) {
-      if (session.tokenHash !== tokenHash) continue;
-      if (session.expiresAt <= now) { this.sessions.delete(session.id); break; }
-      return session;
-    }
+    const sessionId = this.tokenIndex.get(tokenHash);
+    const session = sessionId ? this.sessions.get(sessionId) : undefined;
+    if (session && session.expiresAt > now) return session;
+    if (sessionId) this.sessions.delete(sessionId);
+    this.tokenIndex.delete(tokenHash);
     throw new UnauthorizedException({ code: 'GUEST_SESSION_INVALID', message: 'Session invitée invalide ou expirée.' });
   }
 
   revoke(authorization?: string) {
     const session = this.authenticate(authorization);
     this.sessions.delete(session.id);
+    this.tokenIndex.delete(session.tokenHash);
     return { revoked: true };
   }
 
@@ -116,6 +119,6 @@ export class GuestSessionService implements OnModuleDestroy {
   private maxPromptChars() { return this.number('guestMaxPromptChars', 12_000, 100, 20_000); }
   private cleanup() {
     const now = Date.now();
-    for (const [id, session] of this.sessions) if (session.expiresAt <= now) this.sessions.delete(id);
+    for (const [id, session] of this.sessions) if (session.expiresAt <= now) { this.sessions.delete(id); this.tokenIndex.delete(session.tokenHash); }
   }
 }
