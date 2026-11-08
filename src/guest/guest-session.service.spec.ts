@@ -81,9 +81,13 @@ describe('GuestSessionService', () => {
     expect(() => service.authenticate(`Bearer ${created.token}`)).toThrow();
   });
 
-  it('rejects empty conversations and prevents overlapping imports', () => {
+  it('allows the import service to validate an empty session and releases the import lock', () => {
     const created = service.create();
-    expect(() => service.beginImport(`Bearer ${created.token}`)).toThrow();
+    const snapshot = service.beginImport(`Bearer ${created.token}`);
+    expect(snapshot.used).toBe(0);
+    expect(snapshot.messages).toEqual([]);
+    service.releaseImport(snapshot.sessionId);
+    expect(service.authenticate(`Bearer ${created.token}`).id).toBe(created.sessionId);
   });
 
   it('rejects overlapping generations in the same session', async () => {

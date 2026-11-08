@@ -88,6 +88,18 @@ describe('GuestImportService', () => {
     expect(rows.messages.map((item: any) => item.role)).toEqual(['user', 'assistant', 'user']);
   });
 
+  it('imports a single pending user prompt when no Guest generation completed', async () => {
+    guests.beginImport.mockReturnValueOnce({ ...snapshot, used: 0, messages: [] });
+    const pending = {
+      transferId: payload().transferId,
+      messages: [{ role: 'user' as const, content: 'Question sans réponse', createdAt: '2026-11-08T10:00:00.000Z' }],
+    };
+    const result = await service.importConversation('Bearer token', 'user-1', pending);
+    expect(result).toMatchObject({ imported: true, messageCount: 1 });
+    expect(rows.messages).toHaveLength(1);
+    expect(rows.messages[0].role).toBe('user');
+  });
+
   it('rejects an empty Guest transcript without persisting or revoking', async () => {
     guests.beginImport.mockReturnValueOnce({ ...snapshot, used: 0, messages: [] });
     await expect(service.importConversation('Bearer token', 'user-1', { transferId: payload().transferId, messages: [] }))

@@ -107,9 +107,6 @@ export class GuestSessionService implements OnModuleDestroy {
     const session = this.authenticate(authorization);
     if (session.generating) throw new ConflictException({ code: 'GUEST_GENERATION_IN_PROGRESS', message: 'Attendez la fin de la réponse avant le transfert.' });
     if (session.importing) throw new ConflictException({ code: 'GUEST_IMPORT_IN_PROGRESS', message: 'Un transfert est déjà en cours pour cette session.' });
-    if (session.used < 1) {
-      throw new HttpException({ code: 'GUEST_CONVERSATION_EMPTY', message: 'Aucun échange terminé à transférer.' }, 422);
-    }
     if (session.messages.length > 20) {
       throw new HttpException({ code: 'GUEST_CONVERSATION_TOO_LARGE', message: 'La conversation dépasse la limite de transfert.' }, 413);
     }
