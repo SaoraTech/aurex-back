@@ -31,7 +31,7 @@ export class GuestSessionService implements OnModuleDestroy {
     this.cleanupTimer.unref?.();
   }
 
-  onModuleDestroy() { if (this.cleanupTimer) clearInterval(this.cleanupTimer); this.sessions.clear(); this.tokenIndex.clear(); }
+  onModuleDestroy() { if (this.cleanupTimer) clearInterval(this.cleanupTimer); for (const session of this.sessions.values()) session.controller?.abort(); this.sessions.clear(); this.tokenIndex.clear(); }
 
   create() {
     this.cleanup();
@@ -57,6 +57,7 @@ export class GuestSessionService implements OnModuleDestroy {
     const sessionId = this.tokenIndex.get(tokenHash);
     const session = sessionId ? this.sessions.get(sessionId) : undefined;
     if (session && session.expiresAt > now) return session;
+    if (session) session.controller?.abort();
     if (sessionId) this.sessions.delete(sessionId);
     this.tokenIndex.delete(tokenHash);
     throw new UnauthorizedException({ code: 'GUEST_SESSION_INVALID', message: 'Session invitée invalide ou expirée.' });
