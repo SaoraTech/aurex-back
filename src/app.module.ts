@@ -26,6 +26,7 @@ import { AudioModule } from './audio/audio.module';
 import { ResearchModule } from './research/research.module';
 import { AnnouncementsModule } from './announcements/announcements.module';
 import { QuotasModule } from './quotas/quotas.module';
+import { GuestModule } from './guest/guest.module';
 
 @Module({
   imports: [
@@ -55,6 +56,7 @@ import { QuotasModule } from './quotas/quotas.module';
     ResearchModule,
     AnnouncementsModule,
     QuotasModule,
+    GuestModule,
   ],
 })
 export class AppModule {}
