@@ -6,6 +6,7 @@ export const envFactory=()=>{
   guestSessionTtlSeconds:env.GUEST_SESSION_TTL_SECONDS,guestSessionMaxLifetimeSeconds:env.GUEST_SESSION_MAX_LIFETIME_SECONDS,
   guestMessageLimit:env.GUEST_MESSAGE_LIMIT,guestContextMessages:env.GUEST_CONTEXT_MESSAGES,
   guestMaxPromptChars:env.GUEST_MAX_PROMPT_CHARS,guestMaxActiveSessions:env.GUEST_MAX_ACTIVE_SESSIONS,
+  guestMaxContextChars:env.GUEST_MAX_CONTEXT_CHARS,
   adminEmails:(env.ADMIN_EMAILS??'').split(',').map(e=>e.trim().toLowerCase()).filter(Boolean),
   trustedOrigins:(env.TRUSTED_ORIGINS??'').split(',').map(e=>e.trim()).filter(Boolean),
   corsOrigin:env.CORS_ORIGIN??'',trustedProxies:(env.TRUSTED_PROXIES??'').split(',').map(e=>e.trim()).filter(Boolean),
