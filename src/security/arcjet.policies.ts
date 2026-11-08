@@ -11,7 +11,7 @@
  */
 export type ProtectCategory =
   | 'exempt' | 'default' | 'public' | 'signup' | 'auth'
-  | 'read' | 'chat' | 'math' | 'research' | 'deep_research' | 'tts' | 'stt' | 'upload' | 'files';
+  | 'read' | 'guest' | 'chat' | 'math' | 'research' | 'deep_research' | 'tts' | 'stt' | 'upload' | 'files';
 
 export interface RateRule { intervalSeconds: number; max: number }
 export interface CategoryPolicy {
@@ -29,6 +29,7 @@ export const POLICIES: Record<ProtectCategory, CategoryPolicy> = {
   public:        { scope: 'ip',   shield: true,  bot: true,  ipLimit: { intervalSeconds: 60, max: 120 }, onError: 'allow' },
   signup:        { scope: 'ip',   shield: true,  bot: true,  ipLimit: { intervalSeconds: 600, max: 8 }, onError: 'local' },
   auth:          { scope: 'ip',   shield: true,  bot: true,  ipLimit: { intervalSeconds: 60, max: 20 }, onError: 'local' },
+  guest:        { scope: 'ip', shield: true, bot: true, ipLimit: { intervalSeconds: 60, max: 6 }, onError: 'local' },
   read:          { scope: 'user', shield: true,  bot: false, userLimit: { intervalSeconds: 60, max: 120 }, ipLimit: { intervalSeconds: 60, max: 300 }, onError: 'allow' },
   files:         { scope: 'user', shield: true,  bot: false, userLimit: { intervalSeconds: 60, max: 60 }, ipLimit: { intervalSeconds: 60, max: 200 }, onError: 'allow' },
   chat:          { scope: 'user', shield: true,  bot: false, userLimit: { intervalSeconds: 60, max: 10 }, ipLimit: { intervalSeconds: 60, max: 60 }, onError: 'local' },
