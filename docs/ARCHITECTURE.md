@@ -57,7 +57,7 @@ Brave returns query-relevant page passages with source metadata in one request. 
 
 ## Request path
 
-Express request context and request ID → security middleware / body limits → Nest global guards → validation pipe → controller → domain service → provider adapter → typed provider error mapping → response.
+Express request context and request ID → security middleware / body limits → Nest global guards (pre-auth IP gate before Better Auth lookup) → validation pipe → controller → domain service → provider adapter → typed provider error mapping → response.
 
 The audio transcription route is mounted with an Express raw-body parser and a configured byte limit before JSON parsing. Audio format detection is based on file signatures, not client-declared MIME values.
 
