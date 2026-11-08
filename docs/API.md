@@ -85,7 +85,7 @@ POST /api/v1/audio/transcriptions?languageCode=fr
 }
 ~~~
 
-Both routes require authentication and are protected by the tts / stt security policies. Azure credentials never leave the backend. There is no speech-provider fallback.
+Both routes require authentication and are protected by the tts / stt security policies. User-scoped routes first pass a coarse Arcjet IP gate before Better Auth session lookup, then enforce their route-specific policy after resolving the verified user. Azure credentials never leave the backend. There is no speech-provider fallback.
 
 ## Error contract
 
