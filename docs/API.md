@@ -26,7 +26,11 @@ Admin audit history records publication creation, edits and publication actions 
 | GET | /admin/notifications/summary | Notification dispatch counts by category, channel and status | Admin |
 | GET | /notifications/preferences | Current editorial and transactional channel preferences | Yes |
 | PATCH | /notifications/preferences | Update editorial and transactional channel preferences | Yes |
-| GET/POST | /conversations | List/create conversations | Yes |
+| POST | /guest/sessions | Create an ephemeral guest session | No |
+| DELETE | /guest/sessions/current | Revoke current guest session | Guest Bearer |
+| POST | /guest/chat/messages | Guest chat (non-streaming) | Guest Bearer |
+| POST | /guest/chat/messages/stream | Guest chat via SSE | Guest Bearer |
+| GET/POST | /conversations | List/create persisted conversations | Yes |
 | GET | /conversations/:id/messages | List messages owned by user | Yes |
 | DELETE | /conversations/:id | Delete owned conversation | Yes |
 | GET/POST | /memory | List/create memory | Yes |
@@ -46,7 +50,7 @@ Admin audit history records publication creation, edits and publication actions 
 | DELETE | /library/documents/:id | Delete document | Yes |
 | GET | /metrics | Prometheus metrics, when enabled | Token |
 
-## Audio contracts
+## Guest Mode\n\nGuest sessions use a separate in-memory context and never write guest messages or conversations to Neon. Tokens are volatile Bearer credentials, expire automatically and can be revoked. Defaults, lifecycle requirements, SSE event schema and horizontal-scaling constraints are documented in [GUEST_MODE.md](./GUEST_MODE.md).\n\n## Audio contracts
 
 ### Text-to-speech
 
