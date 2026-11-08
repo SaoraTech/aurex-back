@@ -52,7 +52,10 @@ describe('GuestController', () => {
         { role: 'assistant', content: 'A', createdAt: '2026-11-08T10:00:02.000Z' },
       ],
     });
-    expect(imports.importConversation).toHaveBeenCalledWith('Bearer guest-token', 'authenticated-user-id', expect.any(Object));
+    expect(imports.importConversation).toHaveBeenCalledTimes(1);
+    expect(imports.importConversation.mock.calls[0][0]).toBe('Bearer guest-token');
+    expect(imports.importConversation.mock.calls[0][1]).toBe('authenticated-user-id');
+    expect(imports.importConversation.mock.calls[0][2].transferId).toBe('d2b9b9aa-3f24-4a63-b9de-9c3c9d5c9d7d');
     expect(result).toEqual({ conversationId: 'persisted-id' });
   });
 });
