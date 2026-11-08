@@ -1,13 +1,12 @@
 import { Body, Controller, Delete, Headers, Post, Res, HttpException } from '@nestjs/common';
 import type { Response } from 'express';
 import { ApiTags } from '@nestjs/swagger';
-import { IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsString, MaxLength, MinLength } from 'class-validator';
 import { Protect } from '../security/protect.decorator';
 import { GuestSessionService } from './guest-session.service';
 
 class GuestMessageDto {
   @IsString() @MinLength(1) @MaxLength(20_000) content!: string;
-  @IsOptional() @IsIn(['off', 'on', 'auto']) webSearch?: 'off' | 'on' | 'auto';
 }
 
 @ApiTags('guest')
