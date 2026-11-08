@@ -20,7 +20,11 @@ Mobile / Web / Desktop clients
 
 Aurex is a modular NestJS backend. Authorization, effective plan resolution and quota enforcement remain server-side. Clients never submit authoritative plan names, quotas, payment state or provider credentials.
 
-## Guest Mode\n\nGuestController → Arcjet guest policy → GuestSessionService → Groq AI Orchestrator. Session bearer tokens are stored as SHA-256 digests; message context and quota counters live only in process memory and are discarded on expiry, revocation or process shutdown. This path bypasses Drizzle/Neon entirely and does not call authenticated plan, conversation, memory or quota services. See [GUEST_MODE.md](./GUEST_MODE.md) for API and scaling constraints.\n\n## Audio module
+## Guest Mode
+
+GuestController → Arcjet guest policy → GuestSessionService → Groq AI Orchestrator. Session bearer tokens are stored as SHA-256 digests; message context and quota counters live only in process memory and are discarded on expiry, revocation or process shutdown. This path bypasses Drizzle/Neon entirely and does not call authenticated plan, conversation, memory or quota services. See [GUEST_MODE.md](./GUEST_MODE.md) for API and scaling constraints.
+
+## Audio module
 
 ~~~text
 AudioController
