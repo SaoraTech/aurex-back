@@ -50,7 +50,11 @@ Admin audit history records publication creation, edits and publication actions 
 | DELETE | /library/documents/:id | Delete document | Yes |
 | GET | /metrics | Prometheus metrics, when enabled | Token |
 
-## Guest Mode\n\nGuest sessions use a separate in-memory context and never write guest messages or conversations to Neon. Tokens are volatile Bearer credentials, expire automatically and can be revoked. Defaults, lifecycle requirements, SSE event schema and horizontal-scaling constraints are documented in [GUEST_MODE.md](./GUEST_MODE.md).\n\n## Audio contracts
+## Guest Mode
+
+Guest sessions use a separate in-memory context and never write guest messages or conversations to Neon. Tokens are volatile Bearer credentials, expire automatically and can be revoked. Defaults, lifecycle requirements, SSE event schema and horizontal-scaling constraints are documented in [GUEST_MODE.md](./GUEST_MODE.md).
+
+## Audio contracts
 
 ### Text-to-speech
 
