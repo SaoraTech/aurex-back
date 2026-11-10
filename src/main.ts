@@ -76,7 +76,15 @@ async function bootstrap() {
       'auth-timestamp',
       'auth-signature',
     ],
-    exposedHeaders: ['X-Request-Id', 'Retry-After', 'X-Aurex-Audio-Provider', 'X-Aurex-Audio-Fallback'],
+    // Better Auth's bearer plugin returns the mobile session token in this response header.
+    // It must be exposed explicitly so browser-based Expo clients can read it.
+    exposedHeaders: [
+      'set-auth-token',
+      'X-Request-Id',
+      'Retry-After',
+      'X-Aurex-Audio-Provider',
+      'X-Aurex-Audio-Fallback',
+    ],
   });
 
   // 2) Better Auth routes are served outside Nest's router: protect them with Arcjet, then mount the handler
